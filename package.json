@@ -1,0 +1,18 @@
+{
+  "name": "agentic-factorio-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "companion"
+  ],
+  "scripts": {
+    "build": "npm run build -w companion",
+    "test": "npm run test -w companion",
+    "typecheck": "npm run typecheck -w companion",
+    "play": "npm run play -w companion",
+    "package:mod": "bash scripts/package-mod.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

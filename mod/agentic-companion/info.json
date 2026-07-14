@@ -1,0 +1,9 @@
+{
+  "name": "agentic-companion",
+  "version": "0.1.0",
+  "title": "Agentic Companion",
+  "author": "xell",
+  "factorio_version": "2.0",
+  "dependencies": ["base >= 2.0"],
+  "description": "An AI-controlled companion character you talk to via in-game chat. Requires the agentic-factorio companion app (RCON bridge)."
+}
