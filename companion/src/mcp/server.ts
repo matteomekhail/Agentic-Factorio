@@ -181,15 +181,18 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
       description:
         "Wait for the next player chat message, polling the game about once per second. Returns " +
         "as soon as someone says something new, or reports that nothing was said once timeout_s " +
-        "elapses. Use this to hold a conversation with players without busy-calling read_chat.",
+        "elapses. To listen continuously: call this in a loop with a LONG timeout (600) and do " +
+        "not write any text between calls when nothing was said — just call it again. " +
+        "NOTE: timeouts above ~55s require raising the MCP client's tool timeout (Codex: " +
+        "tool_timeout_sec in [mcp_servers.factorio]; Claude Code: MCP_TOOL_TIMEOUT env, ms).",
       inputSchema: z.object({
         timeout_s: z
           .number()
           .int()
           .min(1)
-          .max(55)
+          .max(600)
           .optional()
-          .describe("seconds to wait, default 30 (max 55 to stay under MCP client timeouts)"),
+          .describe("seconds to wait, default 30; use 600 for continuous listening (see tool description)"),
       }),
     },
     async ({ timeout_s }) => {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { CodexBrain } from "./agent/codexBrain.js";
 import { AgentLoop } from "./agent/loop.js";
 import { resolveModel } from "./agent/providers.js";
 import { sessionKey } from "./agent/session.js";
@@ -26,6 +27,9 @@ Options:
   --rcon-host <host>       RCON host (default 127.0.0.1, env AGENTIC_RCON_HOST)
   --rcon-port <port>       RCON port (default 27015, env AGENTIC_RCON_PORT)
   --rcon-password <pw>     RCON password (env AGENTIC_RCON_PASSWORD)
+  --brain <kind>           api (default) | codex — "codex" drives the companion through
+                           \`codex exec\` with your ChatGPT subscription: no API key, no
+                           polling — the app listens to chat and wakes Codex per message
   --provider <name>        openrouter | anthropic | openai | ollama (default: auto from keys)
   --model <id>             model id for your provider (default: Claude Sonnet)
   --proactive <min>        check in on the factory every N minutes, speak only when needed
@@ -38,14 +42,21 @@ pick the subscription option. \`agentic-factorio setup\` walks you through every
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function play(settings: Settings, fresh: boolean): Promise<void> {
+async function play(settings: Settings, fresh: boolean, brainKind: string): Promise<void> {
   // Fail fast on a missing brain before waiting for the game.
-  const { model, label } = resolveModel({
-    provider: settings.provider,
-    model: settings.model,
-    apiKey: settings.apiKey,
-    ollamaBaseUrl: settings.ollamaBaseUrl,
-  });
+  // "codex" spawns `codex exec` per chat message (ChatGPT subscription, no key).
+  let apiModel: { model: unknown; label: string } | null = null;
+  if (brainKind === "codex") {
+    if (settings.proactiveMinutes) log.warn("--proactive is not supported with --brain codex yet");
+  } else {
+    apiModel = resolveModel({
+      provider: settings.provider,
+      model: settings.model,
+      apiKey: settings.apiKey,
+      ollamaBaseUrl: settings.ollamaBaseUrl,
+    });
+  }
+  const label = brainKind === "codex" ? "codex-cli (ChatGPT subscription)" : apiModel!.label;
 
   if (!settings.rcon.password) {
     log.error(
@@ -99,13 +110,19 @@ async function play(settings: Settings, fresh: boolean): Promise<void> {
     `${spawned.already_existed ? "companion found" : "companion spawned"} at (${spawned.position.x}, ${spawned.position.y})`,
   );
 
-  const tools = buildTools(bridge, { onTool: (name, detail) => log.tool(name, detail) });
-  const loop = new AgentLoop(bridge, model, tools, {
-    sessionKey: fresh ? undefined : sessionKey(settings.rcon.host, settings.rcon.port),
-    budgetWarnTokens: settings.budgetWarnTokens,
-  });
-  if (settings.proactiveMinutes && settings.proactiveMinutes > 0) {
-    loop.startProactive(settings.proactiveMinutes);
+  let loop: { onChat(msg: import("./types.js").ChatMessage): void; dispose(): void };
+  if (brainKind === "codex") {
+    loop = new CodexBrain(bridge, { model: settings.model });
+  } else {
+    const tools = buildTools(bridge, { onTool: (name, detail) => log.tool(name, detail) });
+    const agentLoop = new AgentLoop(bridge, apiModel!.model as never, tools, {
+      sessionKey: fresh ? undefined : sessionKey(settings.rcon.host, settings.rcon.port),
+      budgetWarnTokens: settings.budgetWarnTokens,
+    });
+    if (settings.proactiveMinutes && settings.proactiveMinutes > 0) {
+      agentLoop.startProactive(settings.proactiveMinutes);
+    }
+    loop = agentLoop;
   }
 
   const poller = new ChatPoller(bridge);
@@ -146,6 +163,7 @@ async function main(): Promise<void> {
       "rcon-password": { type: "string" },
       provider: { type: "string" },
       model: { type: "string" },
+      brain: { type: "string" },
       proactive: { type: "string" },
       fresh: { type: "boolean" },
       help: { type: "boolean", short: "h" },
@@ -172,9 +190,15 @@ async function main(): Promise<void> {
     case "setup":
       await runWizard();
       return;
-    case "play":
-      await play(resolveSettings(flags), values.fresh ?? false);
+    case "play": {
+      const brainKind = values.brain ?? "api";
+      if (brainKind !== "api" && brainKind !== "codex") {
+        log.error(`unknown --brain '${brainKind}' — use "api" (default) or "codex"`);
+        process.exit(1);
+      }
+      await play(resolveSettings(flags), values.fresh ?? false, brainKind);
       return;
+    }
     case "mcp": {
       // MCP talks JSON-RPC over stdio: nothing may write to stdout here.
       const settings = resolveSettings(flags);

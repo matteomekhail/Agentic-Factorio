@@ -134,9 +134,32 @@ Poi apri una sessione di Claude Code e scrivi qualcosa tipo:
    codex mcp add factorio -- node <percorso-del-repo>/companion/dist/cli.js mcp
    ```
 
-3. In una sessione codex scrivi: *"collegati alla mia partita di Factorio e aiutami"* —
-   l'assistente usa gli stessi tool (`connect_status`, `wait_for_chat`, `say`, `mine`,
-   `place_entity`, …) e da lì in poi comandi tutto dalla chat di gioco.
+3. **Modalità consigliata — zero attese** (`--brain codex`): invece di tenere Codex in
+   ascolto con `wait_for_chat`, lascia che sia la companion app ad ascoltare la chat
+   (in locale, gratis) e a **svegliare Codex solo quando scrivi**:
+
+   ```sh
+   node companion/dist/cli.js play --brain codex
+   ```
+
+   Sotto il cofano ogni tuo messaggio in chat lancia `codex exec` (primo turno) /
+   `codex exec resume` (turni successivi, stessa conversazione): niente polling,
+   niente turni bruciati in attesa, reazione in ~1 secondo, e paga sempre il tuo
+   abbonamento ChatGPT.
+
+4. **Modalità interattiva** (alternativa): in una sessione `codex` scrivi *"collegati
+   alla mia partita di Factorio e aiutami"* — l'assistente usa i tool (`connect_status`,
+   `wait_for_chat`, `say`, `mine`, `place_entity`, …). In questa modalità Codex deve
+   richiamare `wait_for_chat` in loop per ascoltare: per ridurre le chiamate imposta
+   in `~/.codex/config.toml`, sotto `[mcp_servers.factorio]`:
+
+   ```toml
+   tool_timeout_sec = 900
+   ```
+
+   e digli di usare `wait_for_chat` con `timeout_s: 600` senza scrivere nulla tra
+   una chiamata e l'altra. (Il timeout alto serve anche ai task lunghi, tipo
+   "mina 50 di ferro".)
 
 ### 5c. API key (loop integrato)
 
@@ -193,6 +216,7 @@ demolirle** — mina solo risorse, alberi e rocce.
 | `!stop` (in chat) | **Kill switch**: cancella all'istante tutto quello che sta facendo e la coda dei task |
 | `--proactive N` (flag di `play`) | Report periodici: ogni **N minuti** il companion guarda la fabbrica e parla in chat solo se c'è qualcosa che merita attenzione |
 | `--fresh` (flag di `play`) | Riparte con la memoria vuota (ignora la sessione salvata) |
+| `--brain codex` (flag di `play`) | Cervello = il tuo abbonamento ChatGPT via `codex exec`: la app ascolta la chat e sveglia Codex solo quando scrivi — niente polling |
 
 ## 8. Risoluzione problemi
 
