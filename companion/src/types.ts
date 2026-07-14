@@ -1,4 +1,4 @@
-// TypeScript mirror of docs/PROTOCOL.md (v2). Keep in sync with the mod.
+// TypeScript mirror of docs/PROTOCOL.md (v2 + v3 toolkit). Keep in sync with the mod.
 
 export interface Position {
   x: number;
@@ -62,6 +62,12 @@ export interface GetStateResult {
     inventory: Record<string, number> | Record<string, never>;
     active_task?: ActiveTaskSummary | null;
     queue_length: number;
+    /** Gun/ammo/armor slots (v3). Lua may omit empty slots or send null. */
+    equipment?: {
+      gun?: string | null;
+      ammo?: Record<string, number> | Record<string, never> | null;
+      armor?: string | null;
+    };
   };
   players: Array<{ name: string; position: Position; distance: number }> | Record<string, never>;
   resource_patches: ResourcePatch[] | Record<string, never>;
@@ -99,6 +105,103 @@ export interface StartResearchResult {
   technology: string;
 }
 
+/** Result of the `scan_area` method — an ASCII map of the surroundings. */
+export interface ScanAreaResult {
+  /** Map coordinates of grid cell [row 0][col 0] (the north-west corner). */
+  origin: Position;
+  width: number;
+  height: number;
+  /** Rows north→south, cols west→east; 1 char = 1 tile; grid[row][col] = map (origin.x+col, origin.y+row). */
+  grid: string[] | Record<string, never>;
+  /** Symbol → meaning, e.g. {".": "buildable land", "@": "you"}. Assigned per scan. */
+  legend: Record<string, string> | Record<string, never>;
+  note: string;
+}
+
+/** One entry from `describe_prototype`. The mod includes only non-null keys. */
+export interface PrototypeInfo {
+  kind: "entity" | "recipe" | "unknown";
+  // -- entity fields --
+  entity?: string;
+  placed_by_item?: string;
+  tile_width?: number;
+  tile_height?: number;
+  /** vector_to_place_result at direction 0 (north); rotate with the entity. */
+  drop_offset?: Position;
+  /** Entity: "burner" | "electric" | ... — Recipe: craft time in seconds. */
+  energy?: string | number;
+  fuel_categories?: string[] | Record<string, never>;
+  mining_speed?: number;
+  crafting_categories?: string[] | Record<string, never>;
+  range?: number;
+  /** Inserters only; at direction 0 (north), rotate with the entity. */
+  inserter_pickup_offset?: Position;
+  inserter_drop_offset?: Position;
+  /** Belts only. */
+  belt_speed?: number;
+  // -- recipe fields --
+  ingredients?: Record<string, number> | Record<string, never>;
+  products?: Record<string, number> | Record<string, never>;
+  category?: string;
+  enabled?: boolean;
+}
+
+/** Result of the `describe_prototype` method, keyed by the requested names. */
+export type DescribePrototypesResult = Record<string, PrototypeInfo>;
+
+/** Result of the `can_place` dry-run method. */
+export interface CanPlaceResult {
+  can_place: boolean;
+  /** Best-effort blocker naming, e.g. "blocked by tree at (12,4)". */
+  reason?: string;
+}
+
+/** Result of the `find_buildable_area` method. */
+export interface BuildableArea {
+  center: Position;
+  top_left: Position;
+  /** Trees are allowed inside the rectangle but counted so they can be cleared first. */
+  trees_in_area: number;
+}
+
+/** Result of the `equip` method: the equipment slots after the call. */
+export interface EquipResult {
+  gun?: string | null;
+  ammo?: string | null;
+  armor?: string | null;
+  ammo_count?: number;
+}
+
+/** One entity of a decoded blueprint (`import_blueprint`). */
+export interface BlueprintEntity {
+  name: string;
+  /** RELATIVE position — the blueprint's top-left entity sits at (0,0). */
+  position: Position;
+  direction?: number;
+  recipe?: string | null;
+}
+
+/** Result of the `import_blueprint` method. Decodes only — never builds. */
+export interface ImportedBlueprint {
+  label?: string;
+  size: { w: number; h: number };
+  entities: BlueprintEntity[] | Record<string, never>;
+  items_needed: Record<string, number> | Record<string, never>;
+  /** Unknown/modded entity names that were dropped from the list. */
+  skipped?: string[] | Record<string, never>;
+}
+
+/** One step of a `build_plan` task. */
+export interface BuildPlanStep {
+  item: string;
+  position: Position;
+  direction?: number;
+  /** Applied to the entity after placing (crafting machines). */
+  recipe?: string;
+  /** Items moved from the companion inventory into the placed entity. */
+  insert?: Record<string, number>;
+}
+
 export type Task =
   | { type: "walk_to"; target: Position; arrive_within?: number }
   // Persistent: runs until cancelled/replaced.
@@ -112,7 +215,18 @@ export type Task =
   | { type: "insert"; target: Position; items: Record<string, number> }
   | { type: "extract"; target: Position; items?: Record<string, number>; all?: boolean }
   | { type: "set_recipe"; target: Position; recipe: string }
-  | { type: "rotate"; target: Position; direction?: number };
+  | { type: "rotate"; target: Position; direction?: number }
+  // Sequential multi-entity build; max 100 steps, failed steps skipped unless stop_on_error.
+  | { type: "build_plan"; steps: BuildPlanStep[]; stop_on_error?: boolean }
+  // Consent-gated: the mod fails the task unless confirm is true.
+  | {
+      type: "deconstruct";
+      confirm: boolean;
+      target?: Position;
+      area?: { center: Position; radius: number };
+    }
+  // Anchored area combat; flee_below = health fraction to retreat at.
+  | { type: "fight"; target?: Position; radius?: number; flee_below?: number };
 
 export type TaskStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 

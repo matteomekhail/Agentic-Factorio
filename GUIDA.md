@@ -196,18 +196,33 @@ Scrivi in chat frasi normali — non servono comandi. Esempi che funzionano:
 | Seguirti | «seguimi» (continua finché non gli dici di smettere) |
 | Minare ferro/alberi/rocce | «vai a minare 20 di ferro» · «taglia 10 alberi» |
 | Piazzare edifici | «piazza una trivella a carbone sul ferro» |
+| Costruire strutture complesse | «costruisci una farm di ferro automatica: trivelle sul giacimento con casse all'uscita» |
+| Blueprint | «costruisci questa blueprint: 0eNq…» |
 | Craftare | «crafta 10 ingranaggi di ferro» |
 | Caricare macchine | «metti 10 carbone nel forno vicino a me» |
 | Scaricare macchine | «svuota il forno e tieniti le piastre» |
 | Cambiare ricette | «imposta l'assemblatore sul cavo di rame» |
 | Ruotare | «ruota quel nastro verso sud» |
+| Demolire (solo su tua richiesta esplicita) | «demolisci quel forno» |
+| Combattere | «equipaggiati e ripulisci i nidi a nord» (si ritira da solo se ferito) |
 | Avviare ricerche | «avvia la ricerca della logistica» |
 | Respawn | «torna in vita» (se è morto) |
 
 Non devi dirgli di avvicinarsi prima: ogni azione su una posizione **cammina da sola
 fino a portata** usando il pathfinder del gioco. E una garanzia di sicurezza: il
-companion può *usare* le tue strutture (caricarle, svuotarle, ruotarle) ma **non può
-demolirle** — mina solo risorse, alberi e rocce.
+companion può demolire i tuoi edifici, ma **solo se glielo chiedi esplicitamente**
+(«demolisci quel forno») — mai di sua iniziativa. Il mining resta limitato a risorse,
+alberi e rocce: per gli edifici l'unico canale è la demolizione su richiesta, che
+recupera tutto nel suo inventario.
+
+## 6-bis. Come ragiona quando costruisce
+
+Non ha layout precotti: progetta. Ha una mappa ASCII della zona (`scan_area`), le
+geometrie esatte delle macchine — ingombro in tile, dove depositano gli oggetti
+(`describe_prototype`) — un dry-run che verifica un piazzamento senza toccare nulla
+(`can_place`) e un piano batch che esegue decine di piazzamenti in sequenza
+(`build_plan`). Quindi puoi chiedergli **qualsiasi** costruzione e le coordinate le
+calcola lui; più la richiesta è specifica, meglio esegue.
 
 ## 7. Comandi speciali
 
@@ -235,11 +250,12 @@ Primo passo sempre: `node companion/dist/cli.js doctor` controlla configurazione
 
 Oggi il companion **non**:
 
-- combatte (niente armi, niente difesa dai biter — tienilo lontano dai nidi);
-- usa blueprint (piazza gli edifici uno alla volta);
+- guida veicoli o treni, e non gestisce le reti di circuiti;
 - si moltiplica: **un solo companion** per partita.
 
-Sono le prime voci della roadmap, insieme a miglioramenti continui a percezione e task.
+E in combattimento è un fante con la pistola, non un esercito: ripulisce i nidi
+vicini ma niente gestione torrette. Sono le prossime voci della roadmap, insieme a
+miglioramenti continui a percezione e task.
 
 ## 10. Privacy e costi
 

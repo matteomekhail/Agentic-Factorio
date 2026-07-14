@@ -3,8 +3,9 @@
 An AI companion character inside your own Factorio world. You talk to it in game chat
 ("go mine 20 iron", "follow me", "what's wrong with my assembler?") and it walks, mines,
 builds, crafts and operates machines alongside you — with human-ish constraints: a real
-body, a real inventory, limited reach. No god mode, and it can never demolish your
-structures (it only mines resources, trees and rocks).
+body, a real inventory, limited reach. No god mode — and it demolishes your structures
+only when you explicitly ask it to (mining stays limited to resources, trees and rocks;
+deconstruction is a separate, consent-gated action).
 
 🇮🇹 **Guida completa in italiano: [GUIDA.md](GUIDA.md)**
 
@@ -81,7 +82,15 @@ pathfinding) · follow you · mine ore / trees / rocks in bulk · place building
 craft items · load & unload machines · change recipes · rotate entities · start
 research · respawn after death. Every positional action auto-walks into reach first.
 
-Current limits: no combat, no blueprints, one companion per game.
+It also builds free-form layouts from a plain description — spatial tools (ASCII
+area scan, exact machine footprints, placement dry-runs, batched build plans) let
+the model compute the coordinates itself · imports blueprint strings and builds
+them · deconstructs your buildings, but only on your explicit request
+(consent-gated) · fights: equips gun/ammo/armor, clears nearby nests, and retreats
+on its own when badly hurt.
+
+Current limits: no vehicles, trains or circuit networks; one companion per game.
+In combat it's one soldier with a gun, not an army — no turret management.
 
 ## Repo layout
 

@@ -3,6 +3,7 @@
 -- structures are grouped by name with an entity_status histogram. All scans
 -- are centered on the companion, on the companion's own surface.
 local companion = require("scripts.companion")
+local equipment = require("scripts.equipment")
 
 local M = {}
 
@@ -168,6 +169,7 @@ function M.get_state(params)
       inventory = inventory_map(c.get_main_inventory()),
       active_task = active and { id = active.id, type = active.type, status = "running" } or nil,
       queue_length = #storage.tasks.queue,
+      equipment = equipment.summary(c),
     }
   end
 

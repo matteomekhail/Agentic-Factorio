@@ -164,6 +164,109 @@ MCP-only extras: `connect_status`, `read_chat`, `wait_for_chat` (long-poll ≤55
 never awaited). Every other task tool uses `enqueueAndWait` with per-action timeouts.
 Tool errors are returned as `"Error: …"` strings, never thrown.
 
+## v3 — general building & combat toolkit
+
+Design rule: **no scenario logic in the mod**. These are general primitives; the LLM plans
+("build me an iron farm" = the model scans, reads prototype geometry, computes coordinates,
+validates, then builds). Nothing here knows what a "farm" is.
+
+### Spatial perception (instant methods)
+
+`scan_area` — `{ center?: {x,y} (default companion), radius?: 15 (5..30) }` →
+```jsonc
+{
+  "origin": {"x":-15,"y":-15},           // map coords of grid cell [row 0][col 0]
+  "width": 31, "height": 31,
+  "grid": ["...~~TT...", "..@....a..", ...],  // rows north→south, cols west→east; 1 char = 1 tile
+  "legend": {".":"buildable land","~":"water","c":"cliff","T":"tree","R":"rock",
+             "@":"you","P":"player","E":"enemy",
+             "I":"iron-ore","O":"coal", "a":"stone-furnace", ...},  // letters assigned per distinct thing found
+  "note": "tile at grid[row][col] = map (origin.x+col, origin.y+row); entity symbols mark their center tile"
+}
+```
+Resource letters uppercase, building letters lowercase, assigned dynamically and defined in the legend.
+
+`describe_prototype` — `{ names: ["burner-mining-drill", "inserter", "iron-gear-wheel"] }` →
+per name (item, entity or recipe — resolve in that order, follow item→place_result):
+```jsonc
+{ "burner-mining-drill": {
+    "kind":"entity", "entity":"burner-mining-drill", "placed_by_item":"burner-mining-drill",
+    "tile_width":2, "tile_height":2,
+    "drop_offset":{"x":-0.5,"y":-1.5},       // vector_to_place_result at direction 0 (north); rotate with the entity
+    "energy":"burner", "fuel_categories":["chemical"],
+    "mining_speed":0.25,
+    "crafting_categories":null, "range":null,
+    "inserter_pickup_offset":null, "inserter_drop_offset":null,   // set for inserters
+    "belt_speed":null                                              // set for belts
+  },
+  "iron-gear-wheel": { "kind":"recipe", "ingredients":{"iron-plate":2}, "products":{"iron-gear-wheel":1},
+                       "energy":0.5, "category":"crafting", "enabled":true } }
+```
+Include only non-null keys. Unknown names → `{"kind":"unknown"}`.
+
+`can_place` — `{ item, position:{x,y}, direction?: 0 }` → `{ can_place: bool, reason?: "blocked by tree at (12,4)" }`
+Dry run with `build_check_type.manual`, no side effects. Best-effort blocker naming.
+
+`find_buildable_area` — `{ width, height, near:{x,y}, max_distance?: 50 }` →
+`{ center:{x,y}, top_left:{x,y}, trees_in_area: n }` — nearest rectangle of land tiles free of
+water/cliffs/entities (trees allowed but counted so the model can clear them first). Errors when none found.
+
+### Building at scale (task)
+
+```jsonc
+{ "type":"build_plan", "stop_on_error?": false,
+  "steps": [
+    { "item":"burner-mining-drill", "position":{x,y}, "direction?":4,
+      "recipe?":"iron-gear-wheel",              // for crafting machines, applied after placing
+      "insert?": {"coal": 5} }                  // items moved from companion into the placed entity
+  ] }
+```
+Max 100 steps. Executes sequentially with auto-approach per step (build reach). A failed step is
+recorded and skipped (unless `stop_on_error`). Detail: `"placed 8/10 — step 5 failed: blocked by
+tree at (12,4); step 9 failed: no transport-belt left"`. Steps reuse place/set_recipe/insert logic.
+
+### Demolition (task, consent-gated)
+
+```jsonc
+{ "type":"deconstruct", "confirm": true,
+  "target": {x,y} }            // or "area": { "center":{x,y}, "radius": <=10 }  (max 50 entities)
+```
+Mines player-force entities back into the companion inventory (timed ops, auto-approach).
+`confirm` MUST be true or the task fails with an instruction to ask the player first — the tool
+layer only sets it after the player explicitly asked for demolition. Characters are never targets.
+Trees/rocks don't need deconstruct (plain `mine` handles them).
+
+### Combat
+
+`equip` (instant method) — `{ gun?: "pistol", ammo?: "firearm-magazine", armor?: "light-armor" }`
+Moves items from the main inventory into the gun/ammo/armor slots
+(defines.inventory.character_guns / character_ammo / character_armor). Returns what got equipped
+plus current ammo count. Errors name what's missing from the inventory.
+
+```jsonc
+{ "type":"fight", "radius?": 20,          // max 40, anchored at the START position (no infinite chasing)
+  "target?": {x,y},                        // optional: clear around a specific point instead
+  "flee_below?": 0.3 }                     // health fraction; retreat toward the nearest player and end
+```
+Tick machine: nearest enemy (unit / spawner / worm) in radius → walk into gun range →
+`shooting_state = {state=defines.shooting.shooting_enemies, position=<enemy>}` re-set every tick →
+next enemy until none left → done "cleared, N kills". Fails cleanly when no gun/ammo ("equip a gun
+first"), reports "out of ammo" mid-fight, flees + reports when health drops below the threshold.
+get_state's companion block gains `"equipment": {"gun":"pistol","ammo":{"firearm-magazine":57},"armor":null}`.
+
+### Blueprints (instant method)
+
+`import_blueprint` — `{ "string": "0eNq..." }` →
+```jsonc
+{ "label": "Mining outpost", "size": {"w": 12, "h": 8},
+  "entities": [ {"name":"burner-mining-drill","position":{"x":0,"y":0},"direction":4,"recipe":null}, ... ],
+  "items_needed": {"burner-mining-drill":6,"wooden-chest":6} }
+```
+Decodes via a scratch inventory + `import_stack` + `get_blueprint_entities`; positions normalized
+so the top-left entity sits at (0,0). **Does not build** — the model offsets the coordinates and
+feeds them to `build_plan`. Tiles in the blueprint are ignored; report unknown/modded entities in
+an `"skipped"` list.
+
 ## Conventions
 
 - Positions are map coordinates (tiles), y grows southward. Directions are 16-way (0=N, 4=E, 8=S, 12=W).

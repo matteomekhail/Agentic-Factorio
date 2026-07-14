@@ -6,8 +6,15 @@ import { z } from "zod";
 import { Bridge } from "../bridge.js";
 import {
   asArray,
+  type BuildableArea,
+  type CanPlaceResult,
+  type DescribePrototypesResult,
+  type EquipResult,
   type GetStateResult,
+  type ImportedBlueprint,
   type InspectResult,
+  type PrototypeInfo,
+  type ScanAreaResult,
   type SpawnResult,
   type StartResearchResult,
   type Task,
@@ -60,6 +67,15 @@ export function formatState(state: GetStateResult): string {
         ? "Your inventory is empty."
         : `Inventory: ${inv.map(([n, q]) => `${n} x${q}`).join(", ")}.`,
     );
+    if (c.equipment) {
+      const eq = c.equipment;
+      const ammo = Object.entries(eq.ammo ?? {});
+      lines.push(
+        `Equipment — gun: ${eq.gun ?? "none"}; ammo: ${
+          ammo.length > 0 ? ammo.map(([n, q]) => `${n} x${q}`).join(", ") : "none"
+        }; armor: ${eq.armor ?? "none"}.`,
+      );
+    }
     if (c.active_task) {
       const queued = c.queue_length > 0 ? `, ${c.queue_length} more task(s) queued` : "";
       lines.push(`Currently busy with task #${c.active_task.id} (${c.active_task.type})${queued}.`);
@@ -177,6 +193,96 @@ function formatInspect(e: InspectResult): string {
   return parts.join(" ");
 }
 
+function formatScan(res: ScanAreaResult): string {
+  const lines: string[] = [];
+  lines.push(
+    `Scanned ${res.width}x${res.height} tiles. Grid origin (top-left corner) is map ` +
+      `(${res.origin.x}, ${res.origin.y}); the tile at grid[row][col] is map ` +
+      `(${res.origin.x} + col, ${res.origin.y} + row). Rows run north to south, columns west to east.`,
+  );
+  lines.push("```");
+  lines.push(...asArray(res.grid));
+  lines.push("```");
+  const legend = Object.entries(res.legend ?? {});
+  if (legend.length > 0) {
+    lines.push("Legend:");
+    for (const [symbol, meaning] of legend) lines.push(`${symbol} = ${meaning}`);
+  }
+  if (res.note) lines.push(res.note);
+  return lines.join("\n");
+}
+
+const offsetStr = (o: { x: number; y: number }): string => `(${o.x}, ${o.y})`;
+
+function formatPrototype(name: string, p: PrototypeInfo): string {
+  if (p.kind === "recipe") {
+    const fmt = (r: Record<string, number> | Record<string, never> | undefined): string =>
+      Object.entries(r ?? {})
+        .map(([n, q]) => `${q}x ${n}`)
+        .join(" + ") || "nothing";
+    const bits = [`recipe ${fmt(p.ingredients)} -> ${fmt(p.products)}`];
+    if (typeof p.energy === "number") bits.push(`${p.energy}s craft time`);
+    if (p.category) bits.push(`category ${p.category}`);
+    if (p.enabled === false) bits.push("NOT unlocked yet (needs research)");
+    return `${name}: ${bits.join(", ")}`;
+  }
+  if (p.kind !== "entity") {
+    return `${name}: unknown — no item, entity or recipe by this name; check the exact internal name (lowercase-with-dashes)`;
+  }
+  const bits: string[] = [`entity ${p.tile_width ?? "?"}x${p.tile_height ?? "?"}`];
+  if (p.entity && p.entity !== name) bits.push(`places entity "${p.entity}"`);
+  if (p.placed_by_item && p.placed_by_item !== name) {
+    bits.push(`place with item "${p.placed_by_item}"`);
+  }
+  if (p.energy === "burner") {
+    const fuels = asArray(p.fuel_categories);
+    bits.push(`burner (${fuels.length > 0 ? fuels.join("/") : "chemical"} fuel)`);
+  } else if (typeof p.energy === "string") {
+    bits.push(`${p.energy} powered`);
+  }
+  if (p.mining_speed !== undefined) bits.push(`mining speed ${p.mining_speed}`);
+  if (p.drop_offset) {
+    bits.push(
+      `drops output at offset ${offsetStr(p.drop_offset)} when facing north — rotate the offset with the direction`,
+    );
+  }
+  if (p.inserter_pickup_offset && p.inserter_drop_offset) {
+    bits.push(
+      `picks up at offset ${offsetStr(p.inserter_pickup_offset)} and drops at ` +
+        `${offsetStr(p.inserter_drop_offset)} when facing north — both rotate with the direction`,
+    );
+  }
+  const crafts = asArray(p.crafting_categories);
+  if (crafts.length > 0) bits.push(`crafts categories: ${crafts.join(", ")}`);
+  if (p.range !== undefined) bits.push(`range ${p.range}`);
+  if (p.belt_speed !== undefined) bits.push(`belt speed ${p.belt_speed}`);
+  return `${name}: ${bits.join(", ")}`;
+}
+
+function formatBlueprint(bp: ImportedBlueprint): string {
+  const entities = asArray(bp.entities);
+  const lines: string[] = [];
+  lines.push(
+    `Blueprint ${bp.label ? `"${bp.label}"` : "(unnamed)"} — ${bp.size.w}x${bp.size.h} tiles, ` +
+      `${entities.length} entities. Positions are RELATIVE (top-left entity at (0,0)): ` +
+      `add your chosen anchor coordinates to every x,y before building with build_plan.`,
+  );
+  for (const e of entities) {
+    const facing = e.direction !== undefined ? `, facing ${dirName(e.direction)}` : "";
+    const recipe = e.recipe ? `, recipe ${e.recipe}` : "";
+    lines.push(`- ${e.name} at (${e.position.x}, ${e.position.y})${facing}${recipe}`);
+  }
+  const needed = Object.entries(bp.items_needed ?? {});
+  if (needed.length > 0) {
+    lines.push(`Items needed: ${needed.map(([n, q]) => `${n} x${q}`).join(", ")}.`);
+  }
+  const skipped = asArray(bp.skipped);
+  if (skipped.length > 0) {
+    lines.push(`Skipped (unknown or modded, not in the list above): ${skipped.join(", ")}.`);
+  }
+  return lines.join("\n");
+}
+
 /** Wraps a typed run function into a ToolSpec: re-validates args with the
  *  schema and converts any failure into an "Error: ..." string. */
 function spec<S extends z.ZodObject<z.ZodRawShape>>(
@@ -241,6 +347,106 @@ export function toolSpecs(): ToolSpec[] {
       z.object({ x: z.number(), y: z.number() }),
       async (bridge, { x, y }) =>
         formatInspect(await bridge.call<InspectResult>("inspect", { position: { x, y } })),
+    ),
+
+    spec(
+      "scan_area",
+      "Scan a square of the map into a tile-by-tile ASCII grid — this is your main spatial sense. Use it BEFORE building (to find free ground, water, trees, ore, existing machines) and AFTER building (to verify what actually got placed). One character = one tile; rows run north to south, columns west to east; the tile at grid[row][col] is map coordinate (origin.x + col, origin.y + row), with the origin given in the result. The legend explains every symbol (uppercase letters = resources, lowercase = buildings, @ = you). Defaults to a 15-tile radius around you.",
+      z.object({
+        x: z.number().optional().describe("scan center x; defaults to your position"),
+        y: z.number().optional().describe("scan center y; defaults to your position"),
+        radius: z
+          .number()
+          .int()
+          .min(5)
+          .max(30)
+          .optional()
+          .describe("half-width of the scan square in tiles, default 15"),
+      }),
+      async (bridge, { x, y, radius }) => {
+        if ((x === undefined) !== (y === undefined)) {
+          return "Error: give both x and y for the scan center, or neither to scan around yourself.";
+        }
+        const center = x !== undefined && y !== undefined ? { x, y } : undefined;
+        return formatScan(await bridge.call<ScanAreaResult>("scan_area", { center, radius }));
+      },
+    ),
+
+    spec(
+      "describe_prototype",
+      "Look up the exact geometry and stats of up to 10 item/entity/recipe names: footprint in tiles, where a mining drill drops its output (offset given for facing north — rotate it with the direction), inserter pickup/drop arm offsets, power/fuel type, and recipe ingredients/products/craft time. ALWAYS check every entity type before placing it — guessed sizes and offsets produce misaligned builds. Returns one compact line per name.",
+      z.object({
+        names: z
+          .array(z.string().min(1))
+          .min(1)
+          .max(10)
+          .describe('internal names, e.g. ["burner-mining-drill", "inserter", "iron-gear-wheel"]'),
+      }),
+      async (bridge, { names }) => {
+        const res = await bridge.call<DescribePrototypesResult>("describe_prototype", { names });
+        return names
+          .map((n) => {
+            const info = res[n];
+            return info
+              ? formatPrototype(n, info)
+              : `${n}: unknown — no item, entity or recipe by this name; check the exact internal name (lowercase-with-dashes)`;
+          })
+          .join("\n");
+      },
+    ),
+
+    spec(
+      "can_place",
+      "Dry-run check whether an item could be placed at a position, with no side effects. Answers yes, or no with the blocker when it can be identified. Use it to spot-check the tricky positions of a build (next to water, trees, ore borders, existing machines) before committing a build_plan.",
+      z.object({
+        item: z.string().describe('item name, e.g. "stone-furnace"'),
+        x: z.number(),
+        y: z.number(),
+        direction: directionField,
+      }),
+      async (bridge, { item, x, y, direction }) => {
+        const res = await bridge.call<CanPlaceResult>("can_place", {
+          item,
+          position: { x, y },
+          direction,
+        });
+        if (res.can_place) return `Yes — ${item} can be placed at (${x}, ${y}).`;
+        const reason = res.reason ?? "the spot is blocked";
+        return `No — ${reason}. Try a nearby tile, or clear the blocker first.`;
+      },
+    ),
+
+    spec(
+      "find_buildable_area",
+      "Find the nearest width x height rectangle of open buildable land (no water, cliffs or entities) near a point. Trees are allowed inside but counted, so you can mine them before building. Returns the rectangle's center and top-left map coordinates. Errors when no such rectangle exists within max_distance.",
+      z.object({
+        width: z.number().int().min(1).max(50),
+        height: z.number().int().min(1).max(50),
+        x: z.number().describe("search around this x"),
+        y: z.number().describe("search around this y"),
+        max_distance: z
+          .number()
+          .min(5)
+          .max(100)
+          .optional()
+          .describe("how far from (x, y) to search, in tiles (default 50)"),
+      }),
+      async (bridge, { width, height, x, y, max_distance }) => {
+        const res = await bridge.call<BuildableArea>("find_buildable_area", {
+          width,
+          height,
+          near: { x, y },
+          max_distance,
+        });
+        const trees =
+          res.trees_in_area > 0
+            ? ` ${res.trees_in_area} tree(s) stand inside — mine them before building there.`
+            : " No trees inside.";
+        return (
+          `Found a ${width}x${height} buildable area: top-left (${res.top_left.x}, ${res.top_left.y}), ` +
+          `center (${res.center.x}, ${res.center.y}).${trees}`
+        );
+      },
     ),
 
     spec(
@@ -398,6 +604,132 @@ export function toolSpecs(): ToolSpec[] {
           { type: "rotate", target: { x, y }, direction },
           { timeoutMs: 60_000 },
         ),
+    ),
+
+    spec(
+      "build_plan",
+      "Build MANY entities in one go — the main way to construct anything multi-entity (mining setups, smelting rows, belt runs...). YOU compute the coordinates: scan_area for the ground truth, describe_prototype for every entity type's footprint and offsets, then list the steps in build order. Steps run sequentially with auto-walking; a failed step is reported and skipped (set stop_on_error to abort instead). Each step can also set a recipe and insert items (e.g. fuel) into what it just placed. The result says how many were placed and exactly which steps failed and why.",
+      z.object({
+        steps: z
+          .array(
+            z.object({
+              item: z.string().describe('item to place, e.g. "burner-mining-drill"'),
+              x: z.number(),
+              y: z.number(),
+              direction: directionField,
+              recipe: z.string().optional().describe("recipe to set on the placed machine"),
+              insert: itemsField.optional().describe("items to load into the placed entity (fuel, ingredients)"),
+            }),
+          )
+          .min(1)
+          .max(100),
+        stop_on_error: z.boolean().optional().describe("abort at the first failed step (default: skip and continue)"),
+      }),
+      async (bridge, { steps, stop_on_error }) => {
+        const task: Task = {
+          type: "build_plan",
+          stop_on_error,
+          steps: steps.map((s) => ({
+            item: s.item,
+            position: { x: s.x, y: s.y },
+            direction: s.direction,
+            recipe: s.recipe,
+            insert: s.insert,
+          })),
+        };
+        return bridge.enqueueAndWait(task, { timeoutMs: 60_000 + steps.length * 20_000 });
+      },
+    ),
+
+    spec(
+      "deconstruct",
+      "Demolish OUR OWN buildings, recovering them (and their contents) into your inventory. CONSENT RULE: only set confirm=true when the player explicitly asked for demolition in their recent messages — never demolish on your own initiative; if in doubt, ask via say first. Give x+y for the single nearest building, or area_radius to clear everything around that point (max 50 buildings). Trees/rocks/ore are mined with the mine tool instead.",
+      z.object({
+        x: z.number(),
+        y: z.number(),
+        area_radius: z
+          .number()
+          .min(1)
+          .max(10)
+          .optional()
+          .describe("demolish every building within this radius instead of just the nearest one"),
+        confirm: z
+          .boolean()
+          .describe("must be true, and only after the player explicitly asked for demolition"),
+      }),
+      async (bridge, { x, y, area_radius, confirm }) => {
+        const task: Task =
+          area_radius !== undefined
+            ? { type: "deconstruct", confirm, area: { center: { x, y }, radius: area_radius } }
+            : { type: "deconstruct", confirm, target: { x, y } };
+        return bridge.enqueueAndWait(task, { timeoutMs: 90_000 + (area_radius !== undefined ? 500_000 : 0) });
+      },
+    ),
+
+    spec(
+      "equip",
+      'Equip a gun, ammo and/or armor from your main inventory into your equipment slots (e.g. gun "pistol", ammo "firearm-magazine", armor "light-armor"). Required before fight. Craft or ask for the items first if you have none. Returns what you now have equipped.',
+      z.object({
+        gun: z.string().optional(),
+        ammo: z.string().optional(),
+        armor: z.string().optional(),
+      }),
+      async (bridge, { gun, ammo, armor }) => {
+        const res = await bridge.call<EquipResult>("equip", { gun, ammo, armor });
+        const ammoText = res.ammo && Object.keys(res.ammo).length > 0
+          ? Object.entries(res.ammo).map(([n, c]) => `${n} x${c}`).join(", ")
+          : "no ammo";
+        return `Equipped — gun: ${res.gun ?? "none"}, ammo: ${ammoText}, armor: ${res.armor ?? "none"}.`;
+      },
+    ),
+
+    spec(
+      "fight",
+      "Fight enemies (biters, spawners, worms) around a point: you walk into gun range, shoot, and move target to target until the area is clear. Anchored — you won't chase beyond the radius. You retreat automatically toward the player when badly hurt. Requires a gun and ammo equipped (use equip first). Only fight when the player asks or enemies threaten the factory. Takes real time; !stop aborts.",
+      z.object({
+        x: z.number().optional().describe("anchor x (default: your position)"),
+        y: z.number().optional().describe("anchor y (default: your position)"),
+        radius: z.number().min(5).max(40).optional().describe("how far around the anchor to clear, default 20"),
+        flee_below: z
+          .number()
+          .min(0.05)
+          .max(0.9)
+          .optional()
+          .describe("retreat when health fraction drops below this (default 0.3)"),
+      }),
+      async (bridge, { x, y, radius, flee_below }) => {
+        const target = x !== undefined && y !== undefined ? { x, y } : undefined;
+        return bridge.enqueueAndWait(
+          { type: "fight", target, radius, flee_below },
+          { timeoutMs: 300_000 },
+        );
+      },
+    ),
+
+    spec(
+      "import_blueprint",
+      "Decode a Factorio blueprint export string (the 0eNq… text) into its entity list: names, RELATIVE positions (top-left entity at 0,0), directions, recipes, plus the total items needed. It does NOT build — pick an anchor spot (find_buildable_area helps), ADD the anchor coordinates to every relative position, and feed the result to build_plan once you have the items.",
+      z.object({
+        string: z.string().min(10).describe("the blueprint export string"),
+      }),
+      async (bridge, { string }) => {
+        const bp = await bridge.call<ImportedBlueprint>("import_blueprint", { string });
+        const entities = asArray(bp.entities);
+        const lines = entities
+          .slice(0, 60)
+          .map((e) => `  ${e.name} at +(${e.position.x}, ${e.position.y})${e.direction ? ` dir ${e.direction}` : ""}${e.recipe ? ` recipe ${e.recipe}` : ""}`);
+        if (entities.length > 60) lines.push(`  … and ${entities.length - 60} more`);
+        const needed = Object.entries(bp.items_needed ?? {})
+          .map(([n, c]) => `${n} x${c}`)
+          .join(", ");
+        const skipped = asArray(bp.skipped as string[] | undefined ?? []);
+        return [
+          `Blueprint${bp.label ? ` "${bp.label}"` : ""}: ${entities.length} entities, ${bp.size.w}x${bp.size.h} tiles. Positions are RELATIVE — add your anchor before building.`,
+          ...lines,
+          `Items needed: ${needed || "none"}.`,
+          skipped.length > 0 ? `Skipped (unknown here): ${skipped.join(", ")}.` : "",
+        ].filter(Boolean).join("\n");
+      },
     ),
 
     spec(

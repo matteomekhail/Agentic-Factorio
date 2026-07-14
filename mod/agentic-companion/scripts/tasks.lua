@@ -8,6 +8,9 @@ local mine = require("scripts.actions.mine")
 local build = require("scripts.actions.build")
 local craft = require("scripts.actions.craft")
 local transfer = require("scripts.actions.transfer")
+local build_plan = require("scripts.actions.build_plan")
+local deconstruct = require("scripts.actions.deconstruct")
+local fight = require("scripts.actions.fight")
 
 local M = {}
 
@@ -24,6 +27,9 @@ local runners = {
   craft = craft,
   insert = transfer.insert,
   extract = transfer.extract,
+  build_plan = build_plan,
+  deconstruct = deconstruct,
+  fight = fight,
 }
 
 local function stop_body()
@@ -31,6 +37,9 @@ local function stop_body()
   if c then
     c.walking_state = { walking = false }
     c.mining_state = { mining = false }
+    pcall(function()
+      c.shooting_state = { state = defines.shooting.not_shooting }
+    end)
   end
 end
 
