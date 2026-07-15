@@ -78,7 +78,15 @@ export interface GetStateResult {
   /** Omitted when nothing is queued. */
   research?: { current: string; progress: number };
   /** Top 8 items by amount produced, all-time. */
-  production_top?: Record<string, { produced: number; consumed: number }>;
+  production_top?: Record<
+    string,
+    {
+      produced_per_min: number;
+      consumed_per_min: number;
+      produced_total: number;
+      consumed_total: number;
+    }
+  >;
 }
 
 /** Details of ONE entity, from the `inspect` method. */

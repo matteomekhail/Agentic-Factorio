@@ -14,12 +14,20 @@ local MAX_STRUCTURE_GROUPS = 30
 local MAX_PRODUCTION_ITEMS = 8
 local PATCH_CELL = 8 -- flood-fill grid cell size in tiles; 8-neighbor cells merge
 
+-- Round positions to the nearest half tile: entity centers sit on multiples
+-- of 0.5, which is exactly representable in binary — 0.1 steps are not, and
+-- serialize as 26.6999999… noise that wastes the model's tokens.
 local function round1(v)
-  return math.floor(v * 10 + 0.5) / 10
+  return math.floor(v * 2 + 0.5) / 2
 end
 
 local function round2(v)
   return math.floor(v * 100 + 0.5) / 100
+end
+
+-- Distances are for orientation only — whole tiles are plenty.
+local function round_dist(v)
+  return math.floor(v + 0.5)
 end
 
 local function distance(a, b)
@@ -94,7 +102,7 @@ local function cluster_resources(entities, origin)
           entity_count = count,
           total_amount = amount,
           center = center,
-          distance = round1(distance(center, origin)),
+          distance = round_dist(distance(center, origin)),
         }
       end
     end
@@ -179,7 +187,7 @@ function M.get_state(params)
       players[#players + 1] = {
         name = p.name,
         position = { x = round1(p.position.x), y = round1(p.position.y) },
-        distance = round1(distance(p.position, origin)),
+        distance = round_dist(distance(p.position, origin)),
       }
     end
   end
@@ -219,7 +227,7 @@ function M.get_state(params)
     force = force,
   })
   if nearest then
-    enemies.nearest_distance = round1(distance(nearest.position, origin))
+    enemies.nearest_distance = round_dist(distance(nearest.position, origin))
   end
   out.enemies = enemies
 
@@ -228,18 +236,44 @@ function M.get_state(params)
     out.research = { current = current.name, progress = round2(force.research_progress) }
   end
 
+  -- Trends beat lifetime totals: rank by last-minute production rate, fall
+  -- back to all-time totals for saves where nothing moved this minute.
   local stats = force.get_item_production_statistics(surface)
   local produced, consumed = stats.input_counts, stats.output_counts
+  local function rate(name, category)
+    local n = 0
+    pcall(function()
+      n = stats.get_flow_count({
+        name = name,
+        category = category,
+        precision_index = defines.flow_precision_index.one_minute,
+        count = true,
+      })
+    end)
+    return math.floor(n + 0.5)
+  end
   local names = {}
   for name in pairs(produced) do
     names[#names + 1] = name
   end
-  table.sort(names, function(a, b) return produced[a] > produced[b] end)
+  local per_min = {}
+  for _, name in ipairs(names) do
+    per_min[name] = rate(name, "input")
+  end
+  table.sort(names, function(a, b)
+    if per_min[a] ~= per_min[b] then return per_min[a] > per_min[b] end
+    return produced[a] > produced[b]
+  end)
   if #names > 0 then
     local top = {}
     for i = 1, math.min(#names, MAX_PRODUCTION_ITEMS) do
       local name = names[i]
-      top[name] = { produced = produced[name], consumed = consumed[name] or 0 }
+      top[name] = {
+        produced_per_min = per_min[name],
+        consumed_per_min = rate(name, "output"),
+        produced_total = produced[name],
+        consumed_total = consumed[name] or 0,
+      }
     end
     out.production_top = top
   end
