@@ -73,6 +73,10 @@ end
 -- (Re)initialize a walker. `state` must be a plain table stored on the task;
 -- all fields are plain data. The first step() issues the pathfinder request.
 function M.begin(state, c, target, arrive_within)
+  -- Walking tasks take over from driving: hop out first.
+  pcall(function()
+    if c.driving then c.driving = false end
+  end)
   for k in pairs(state) do
     state[k] = nil
   end

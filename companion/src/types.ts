@@ -62,6 +62,8 @@ export interface GetStateResult {
     inventory: Record<string, number> | Record<string, never>;
     active_task?: ActiveTaskSummary | null;
     queue_length: number;
+    /** Vehicle name when the companion is at the wheel. */
+    vehicle?: string;
     /** Gun/ammo/armor slots (v3). Lua may omit empty slots or send null. */
     equipment?: {
       gun?: string | null;
@@ -253,6 +255,7 @@ export type Task =
   | { type: "deliver"; items?: Record<string, number>; all?: boolean; player?: string }
   // Persistent caretaker: tops up burner machines around the anchor until cancelled.
   | { type: "keep_fueled"; center?: Position; radius?: number; fuel?: string }
+  | { type: "drive_to"; target: Position; arrive_within?: number }
   | { type: "set_recipe"; target: Position; recipe: string }
   | { type: "rotate"; target: Position; direction?: number }
   // Sequential multi-entity build; max 100 steps, failed steps skipped unless stop_on_error.

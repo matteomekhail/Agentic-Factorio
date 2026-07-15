@@ -263,6 +263,9 @@ function M.get_state(params)
       queue_length = #storage.tasks.queue,
       equipment = equipment.summary(c),
     }
+    pcall(function()
+      if c.vehicle then out.companion.vehicle = c.vehicle.name end
+    end)
   end
 
   local players = {}

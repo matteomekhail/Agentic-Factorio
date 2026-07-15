@@ -61,7 +61,9 @@ export function formatState(state: GetStateResult): string {
 
   if (state.companion) {
     const c = state.companion;
-    lines.push(`You are at (${c.position.x}, ${c.position.y}), health ${c.health}.`);
+    lines.push(
+      `You are at (${c.position.x}, ${c.position.y}), health ${c.health}${c.vehicle ? `, driving a ${c.vehicle}` : ""}.`,
+    );
     const inv = Object.entries(c.inventory ?? {});
     lines.push(
       inv.length === 0
@@ -534,6 +536,32 @@ export function toolSpecs(): ToolSpec[] {
           { type: "walk_to", target: { x, y }, arrive_within },
           { replace: true, timeoutMs: 180_000 },
         ),
+    ),
+
+    spec(
+      "drive_to",
+      "Drive a car to a map position — MUCH faster than walking for long distances. Boards the nearest free car first (fueling it from your inventory if needed). Cars can't cross water and don't path around big obstacles: on a stuck report, walk instead or pick a clearer route. You stay in the car on arrival.",
+      z.object({
+        x: z.number(),
+        y: z.number(),
+        arrive_within: z.number().min(2).max(15).optional().describe("parking tolerance in tiles, default 3"),
+      }),
+      async (bridge, { x, y, arrive_within }) =>
+        bridge.enqueueAndWait(
+          { type: "drive_to", target: { x, y }, arrive_within },
+          { replace: true, timeoutMs: 240_000 },
+        ),
+    ),
+
+    spec(
+      "exit_vehicle",
+      "Get out of the vehicle you're currently driving. (Walking tasks also hop out automatically.)",
+      z.object({}),
+      async (bridge) => {
+        const res = await bridge.call<{ exited: string; position: { x: number; y: number } }>(
+          "exit_vehicle", {});
+        return `Out of the ${res.exited} at (${res.position.x.toFixed(1)}, ${res.position.y.toFixed(1)}).`;
+      },
     ),
 
     spec(
