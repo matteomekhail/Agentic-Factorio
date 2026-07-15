@@ -157,8 +157,12 @@ export function formatState(state: GetStateResult): string {
     const prod = Object.entries(state.production_top);
     if (prod.length > 0) {
       lines.push(
-        "Top production (all-time): " +
-          prod.map(([n, p]) => `${n} ${num(p.produced)} made / ${num(p.consumed)} used`).join("; ") +
+        "Top production (last minute): " +
+          prod
+            .map(([n, p]) =>
+              `${n} ${num(p.produced_per_min)}/min made, ${num(p.consumed_per_min)}/min used` +
+              ` (${num(p.produced_total)} all-time)`)
+            .join("; ") +
           ".",
       );
     }
