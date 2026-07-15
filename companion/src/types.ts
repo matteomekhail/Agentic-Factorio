@@ -78,6 +78,14 @@ export interface GetStateResult {
   /** Omitted when nothing is queued. */
   research?: { current: string; progress: number };
   /** Top 8 items by amount produced, all-time. */
+  /** Electric network summary; omitted when no poles are in view. */
+  power?: {
+    networks: number;
+    production_kw?: number;
+    consumption_kw?: number;
+    top_consumers_kw?: Record<string, number> | Record<string, never>;
+    starving_machines?: number;
+  };
   production_top?: Record<
     string,
     {
