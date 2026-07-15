@@ -648,6 +648,25 @@ export function toolSpecs(): ToolSpec[] {
     ),
 
     spec(
+      "keep_fueled",
+      "Start a PERSISTENT caretaker duty: watch the burner machines (furnaces, drills, boilers...) around a point and top them up with fuel from your inventory whenever they run low. Keeps running until stop — like follow_player, it replaces what you were doing, and you should carry plenty of coal first. You'll announce in chat if you run out of fuel to hand out.",
+      z.object({
+        x: z.number().optional().describe("anchor x (default: where you stand now)"),
+        y: z.number().optional().describe("anchor y (default: where you stand now)"),
+        radius: z.number().min(5).max(40).optional().describe("area radius, default 24"),
+        fuel: z.string().optional().describe('only hand out this fuel item, e.g. "coal"'),
+      }),
+      async (bridge, { x, y, radius, fuel }) => {
+        const center = x !== undefined && y !== undefined ? { x, y } : undefined;
+        await bridge.call<{ task_id: number }>("enqueue", {
+          task: { type: "keep_fueled", center, radius, fuel } satisfies Task,
+          replace: true,
+        });
+        return `On fuel duty${center ? ` around (${x}, ${y})` : " here"} (radius ${radius ?? 24}). Call stop to end it.`;
+      },
+    ),
+
+    spec(
       "deliver_items",
       'Bring items from your inventory TO A PLAYER and hand them over (e.g. after mining or crafting for them). You chase the player even if they move. Pass items for specific counts, or all: true to hand over everything you carry. This is how "portami X / bring me X" requests end.',
       z.object({
