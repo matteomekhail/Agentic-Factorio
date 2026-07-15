@@ -96,11 +96,15 @@ export function formatState(state: GetStateResult): string {
         crew
           .map((m) => {
             if (m.dead) return `${m.name} is DEAD (respawn with name "${m.name}")`;
-            const task = m.active_task ? `doing ${m.active_task.type}` : "idle";
+            const task = m.active_task ? `doing ${m.active_task.type}` : "IDLE";
             return `${m.name} at (${m.position?.x}, ${m.position?.y}), hp ${m.health}, ${task}${m.vehicle ? `, in a ${m.vehicle}` : ""}`;
           })
           .join("; ") +
         ".",
+    );
+  } else if (state.companion) {
+    lines.push(
+      'Crew: just you — up to 3 more companions can work in parallel (respawn {name:"Anna"} to add one, then pass companion:"Anna" + background:true on action tools).',
     );
   }
 
@@ -348,15 +352,23 @@ const companionField = z
     'which companion performs this (default "AI"); other_companions in look_around lists the crew',
   );
 
+const backgroundField = z
+  .boolean()
+  .optional()
+  .describe(
+    "action tasks only: true = don't wait — returns 'queued as task #N' immediately and the " +
+      "outcome arrives later as an [event]. USE THIS to run several companions in parallel",
+  );
+
 function spec<S extends z.ZodObject<z.ZodRawShape>>(
   name: string,
   description: string,
   schema: S,
   run: (bridge: Bridge, args: z.infer<S>) => Promise<string>,
 ): ToolSpec {
-  // Every tool accepts an optional `companion`; a scoped bridge injects it
-  // into all mod calls, so individual tools stay companion-agnostic.
-  const fullSchema = schema.extend({ companion: companionField });
+  // Every tool accepts optional `companion` and `background`; a scoped bridge
+  // injects/handles them, so individual tools stay agnostic of both.
+  const fullSchema = schema.extend({ companion: companionField, background: backgroundField });
   return {
     name,
     description,
@@ -364,8 +376,25 @@ function spec<S extends z.ZodObject<z.ZodRawShape>>(
     execute: async (bridge, args) => {
       try {
         const parsed = fullSchema.parse(args);
-        const companionName = (parsed as { companion?: string }).companion;
-        const scoped = companionName ? bridge.scoped(companionName) : bridge;
+        const { companion: companionName, background } = parsed as {
+          companion?: string;
+          background?: boolean;
+        };
+        let scoped = companionName ? bridge.scoped(companionName) : bridge;
+        if (background) {
+          // Fire-and-forget: swap enqueueAndWait for a plain enqueue; the mod
+          // pushes a task_done/task_failed event when the task finishes.
+          const base = scoped;
+          scoped = Object.create(base) as Bridge;
+          scoped.enqueueAndWait = async (task, opts) => {
+            const res = await base.call<{ task_id: number; companion: string }>("enqueue", {
+              task,
+              replace: opts?.replace ?? false,
+              background: true,
+            });
+            return `Queued in background as task #${res.task_id} for ${res.companion} — the outcome will arrive as an [event]. You can issue more orders right away.`;
+          };
+        }
         return await run(scoped, parsed as z.infer<S>);
       } catch (e) {
         return err(e);

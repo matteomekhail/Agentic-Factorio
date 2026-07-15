@@ -210,7 +210,7 @@ Scrivi in chat frasi normali — non servono comandi. Esempi che funzionano:
 | Fare il guardiano | «difendi questa zona» (spara agli intrusi, ricarica le torrette, ripara i danni) |
 | Fare il fuochista | «tieni riforniti i forni qui intorno» (pattuglia e ricarica il carbone) |
 | Gestire i treni | «manda il treno 2 alla Stazione Ferro e fallo aspettare finché è pieno» |
-| Squadra (fino a 4 companion) | «crea un companion di nome Anna» · «Anna mina il ferro mentre Bruno costruisce» — lavorano in parallelo, ognuno col suo colore ed etichetta |
+| Squadra (fino a 4 companion) | «crea un companion di nome Anna» · «Anna mina il ferro mentre Bruno costruisce» — lavorano in parallelo, ognuno col suo colore ed etichetta. Il cervello smista gli ordini "in background" e riceve gli esiti come eventi, quindi non resta mai fermo ad aspettare |
 | Reagire agli eventi | ti avvisa da solo se viene attaccato, muore, finisce una ricerca o una scorta — senza che tu chieda nulla |
 | Combattere | «equipaggiati e ripulisci i nidi a nord» (si ritira da solo se ferito) |
 | Avviare ricerche | «avvia la ricerca della logistica» |

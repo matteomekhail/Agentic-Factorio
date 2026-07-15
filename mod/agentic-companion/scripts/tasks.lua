@@ -2,6 +2,7 @@
 -- on_tick (always registered, early-exit when idle); the companion app polls
 -- get_task for completion.
 local companion = require("scripts.companion")
+local events = require("scripts.events")
 local walk = require("scripts.actions.walk")
 local follow = require("scripts.actions.follow")
 local mine = require("scripts.actions.mine")
@@ -73,6 +74,22 @@ local function finish(task, status, detail)
     l.active = nil
   end
   stop_body()
+
+  -- Background tasks aren't awaited by anyone — report their outcome as a
+  -- push event so the brain hears about it. (Awaited tasks already report
+  -- through get_task polling; cancellations stay silent.)
+  if task.background then
+    pcall(function()
+      local who = task.companion or companion.DEFAULT
+      if status == "done" then
+        events.push("task_done", who .. " finished: " .. (detail or "done"),
+          { companion = who, task_id = task.id })
+      elseif status == "failed" then
+        events.push("task_failed", who .. "'s task FAILED: " .. (detail or "no detail"),
+          { companion = who, task_id = task.id })
+      end
+    end)
+  end
 end
 
 local function cancel_lane(name)
@@ -107,6 +124,7 @@ function M.enqueue(params)
   t.next_id = t.next_id + 1
   task.status = "queued"
   task.companion = name
+  task.background = params.background == true
   local l = lane(name)
   l.queue[#l.queue + 1] = task
   return { task_id = task.id, companion = name }
