@@ -217,4 +217,111 @@ function M.extract.tick(task)
   return extract_items(task, c, e)
 end
 
+-- ---------------------------------------------------------------- deliver
+-- Walk to a (moving) player and hand items over into their inventory.
+
+local walk = require("scripts.actions.walk")
+
+M.deliver = {}
+
+function M.deliver.start(task)
+  local c = companion.require_companion()
+  if task.all ~= true then
+    local list = validate_items(task.items, "deliver")
+    for _, entry in ipairs(list) do
+      if c.get_item_count(entry.name) == 0 then
+        error("I don't have any " .. entry.name .. " to deliver — check my inventory with look_around")
+      end
+    end
+  end
+  task._dl = {}
+end
+
+local function deliver_target(task)
+  if task.player then
+    local p = game.get_player(task.player)
+    if p and p.connected then return p end
+    return nil
+  end
+  return game.connected_players[1]
+end
+
+function M.deliver.tick(task)
+  local c = companion.get()
+  if not c then return gone() end
+  local p = deliver_target(task)
+  if not (p and p.character and p.character.valid) then
+    return {
+      status = "failed",
+      detail = task.player
+        and ("player " .. task.player .. " isn't online (or has no body)")
+        or "no player to deliver to — nobody with a body is online",
+    }
+  end
+  local char = p.character
+
+  local dx, dy = char.position.x - c.position.x, char.position.y - c.position.y
+  if dx * dx + dy * dy > 4 then
+    -- Chase the (possibly moving) player; re-plan when they drift.
+    local d = task._dl
+    if not d.walk or not d.goal
+      or math.abs(d.goal.x - char.position.x) + math.abs(d.goal.y - char.position.y) > 4 then
+      d.walk = {}
+      d.goal = { x = char.position.x, y = char.position.y }
+      walk.begin(d.walk, c, d.goal, 2)
+    end
+    local r = walk.step(d.walk, c, task.id)
+    if type(r) == "table" then
+      return { status = "failed", detail = "couldn't reach " .. p.name .. ": " .. r.failed }
+    elseif r == "arrived" then
+      d.walk = nil
+    end
+    return nil
+  end
+  c.walking_state = { walking = false }
+
+  local inv = c.get_main_inventory()
+  local wanted = {}
+  if task.all == true then
+    for _, item in ipairs(inv.get_contents()) do
+      wanted[item.name] = (wanted[item.name] or 0) + item.count
+    end
+    if next(wanted) == nil then
+      return { status = "failed", detail = "my inventory is empty — nothing to deliver" }
+    end
+  else
+    for name, count in pairs(task.items) do
+      wanted[name] = math.floor(tonumber(count) or 0)
+    end
+  end
+
+  local delivered, kept, total = {}, {}, 0
+  for name, count in pairs(wanted) do
+    local n = math.min(inv.get_item_count(name), count)
+    if n > 0 then
+      local given = char.insert({ name = name, count = n })
+      if given > 0 then
+        inv.remove({ name = name, count = given })
+        delivered[#delivered + 1] = string.format("%d %s", given, name)
+        total = total + given
+      end
+      if given < n then kept[#kept + 1] = name end
+    end
+  end
+
+  if total == 0 then
+    return {
+      status = "failed",
+      detail = "couldn't hand anything over — is " .. p.name .. "'s inventory full?",
+    }
+  end
+  table.sort(delivered)
+  return {
+    status = "done",
+    detail = string.format("delivered %s to %s%s",
+      table.concat(delivered, ", "), p.name,
+      #kept > 0 and (" — their inventory filled up, I kept the rest of: " .. table.concat(kept, ", ")) or ""),
+  }
+end
+
 return M
