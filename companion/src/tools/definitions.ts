@@ -840,6 +840,24 @@ export function toolSpecs(): ToolSpec[] {
     ),
 
     spec(
+      "defend_area",
+      "Start PERSISTENT garrison duty around a point: shoot enemies that come near, refill ammo turrets from your main inventory, and repair damaged structures (consumes repair packs). Needs a gun equipped. Runs until stop; replaces what you were doing. Stock up on magazines and repair packs first — you'll announce in chat when supplies run out.",
+      z.object({
+        x: z.number().optional().describe("anchor x (default: where you stand now)"),
+        y: z.number().optional().describe("anchor y (default: where you stand now)"),
+        radius: z.number().min(8).max(32).optional().describe("area radius, default 16"),
+      }),
+      async (bridge, { x, y, radius }) => {
+        const center = x !== undefined && y !== undefined ? { x, y } : undefined;
+        await bridge.call<{ task_id: number }>("enqueue", {
+          task: { type: "defend_area", center, radius } satisfies Task,
+          replace: true,
+        });
+        return `On guard duty${center ? ` around (${x}, ${y})` : " here"} (radius ${radius ?? 16}). Call stop to end it.`;
+      },
+    ),
+
+    spec(
       "import_blueprint",
       "Decode a Factorio blueprint export string (the 0eNq… text) into its entity list: names, RELATIVE positions (top-left entity at 0,0), directions, recipes, plus the total items needed. It does NOT build — pick an anchor spot (find_buildable_area helps), ADD the anchor coordinates to every relative position, and feed the result to build_plan once you have the items.",
       z.object({

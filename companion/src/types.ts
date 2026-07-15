@@ -256,6 +256,8 @@ export type Task =
   // Persistent caretaker: tops up burner machines around the anchor until cancelled.
   | { type: "keep_fueled"; center?: Position; radius?: number; fuel?: string }
   | { type: "drive_to"; target: Position; arrive_within?: number }
+  // Persistent garrison: fights intruders, refills turrets, repairs damage.
+  | { type: "defend_area"; center?: Position; radius?: number }
   | { type: "set_recipe"; target: Position; recipe: string }
   | { type: "rotate"; target: Position; direction?: number }
   // Sequential multi-entity build; max 100 steps, failed steps skipped unless stop_on_error.
