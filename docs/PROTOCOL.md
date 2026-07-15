@@ -270,6 +270,33 @@ so the top-left entity sits at (0,0). **Does not build** — the model offsets t
 feeds them to `build_plan`. Tiles in the blueprint are ignored; report unknown/modded entities in
 an `"skipped"` list.
 
+## v4 — events & multi-companion
+
+### Push events
+
+`get_events` — `{ since_id: 0 }` → `{ events: [{id, tick, kind, text, companion?}], last_id }`
+Ring buffer (max 100) of things that happened unprompted: `attacked` (throttled 5s per
+companion), `died`, `research_finished`, `supply_warning` (defend/refuel duties out of
+ammo/fuel/repair packs). The companion app polls it alongside chat and wakes the brain
+with `[event]` messages; MCP's `wait_for_chat` returns both streams.
+
+### Multi-companion
+
+Up to **4 named companions** (default `"AI"`), each with its own color, floating label,
+map tag and **task lane** — lanes tick in parallel, so companions genuinely work at the
+same time.
+
+- Every method/enqueue accepts an optional `companion: "Name"` param; the mod routes the
+  call to that companion (rpc sets a per-call context; handlers are companion-agnostic).
+- `spawn_companion {name?}` creates/locates a named companion (a NEW name = a NEW body).
+- `cancel {all:true}` clears EVERY lane (the !stop kill switch);
+  `cancel {all:true, companion:"X"}` clears only X's lane.
+- `get_state` centers on the addressed companion (`companion.name` in the result) and
+  lists the rest of the crew in `other_companions: [{name, position, health, active_task,
+  queue_length, vehicle?, dead?}]`.
+- On the TS side the tool registry injects `companion` automatically: every tool schema
+  gains the optional field and a scoped Bridge merges it into all mod calls.
+
 ## Conventions
 
 - Positions are map coordinates (tiles), y grows southward. Directions are 16-way (0=N, 4=E, 8=S, 12=W).

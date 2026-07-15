@@ -4,6 +4,7 @@
 -- are centered on the companion, on the companion's own surface.
 local companion = require("scripts.companion")
 local equipment = require("scripts.equipment")
+local tasks = require("scripts.tasks")
 
 local M = {}
 
@@ -254,19 +255,43 @@ function M.get_state(params)
   local out = { tick = game.tick }
 
   if c then
-    local active = storage.tasks.active
     out.companion = {
+      name = companion.context(),
       position = { x = round1(origin.x), y = round1(origin.y) },
       health = math.floor(c.health or 0),
       inventory = inventory_map(c.get_main_inventory()),
-      active_task = active and { id = active.id, type = active.type, status = "running" } or nil,
-      queue_length = #storage.tasks.queue,
+      active_task = tasks.active_summary(),
+      queue_length = tasks.queue_length(),
       equipment = equipment.summary(c),
     }
     pcall(function()
       if c.vehicle then out.companion.vehicle = c.vehicle.name end
     end)
   end
+
+  -- The rest of the crew, so the mother brain can dispatch by name.
+  local others = {}
+  for _, name in ipairs(companion.names()) do
+    if name ~= companion.context() then
+      local ent = companion.get(name)
+      if ent then
+        local summary = {
+          name = name,
+          position = { x = round1(ent.position.x), y = round1(ent.position.y) },
+          health = math.floor(ent.health or 0),
+          active_task = tasks.active_summary(name),
+          queue_length = tasks.queue_length(name),
+        }
+        pcall(function()
+          if ent.vehicle then summary.vehicle = ent.vehicle.name end
+        end)
+        others[#others + 1] = summary
+      else
+        others[#others + 1] = { name = name, dead = true }
+      end
+    end
+  end
+  if #others > 0 then out.other_companions = others end
 
   local players = {}
   for _, p in ipairs(game.connected_players) do

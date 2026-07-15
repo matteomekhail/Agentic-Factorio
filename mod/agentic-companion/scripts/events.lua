@@ -39,36 +39,49 @@ function M.get(params)
   return { events = out, last_id = ev.next_id - 1 }
 end
 
+-- Which of our companions (if any) is this character entity?
+local function companion_name_of(entity)
+  for name, rec in pairs(storage.companions or {}) do
+    if rec.entity and rec.entity.valid and rec.entity == entity then
+      return name
+    end
+    if rec.unit_number and entity.unit_number == rec.unit_number then
+      return name
+    end
+  end
+  return nil
+end
+
 -- Wired with an event filter on type "character" in control.lua.
 function M.on_entity_damaged(event)
   local entity = event.entity
   if not (entity and entity.valid) then return end
-  local c = companion.get()
-  if not c or entity ~= c then return end
+  local name = companion_name_of(entity)
+  if not name then return end
   local now = game.tick
   local ev = buffer()
-  if ev.last_attack_tick and now - ev.last_attack_tick < ATTACK_THROTTLE_TICKS then
+  ev.last_attack_tick_by = ev.last_attack_tick_by or {}
+  local last = ev.last_attack_tick_by[name]
+  if last and now - last < ATTACK_THROTTLE_TICKS then
     return
   end
-  ev.last_attack_tick = now
+  ev.last_attack_tick_by[name] = now
   M.push("attacked", string.format(
-    "I'm being attacked! Health %d/%s at (%.1f, %.1f) — decide: fight back, flee, or call for help.",
+    "%s is being attacked! Health %d/%s at (%.1f, %.1f) — decide: fight back, flee, or send help.",
+    name,
     math.floor(entity.health or 0),
     tostring(math.floor(entity.max_health or 250)),
-    c.position.x, c.position.y))
+    entity.position.x, entity.position.y), { companion = name })
 end
 
 function M.on_entity_died(event)
   local entity = event.entity
   if not (entity and entity.valid) then return end
-  local rec = storage.companion
-  if not (rec and rec.entity and rec.entity.valid and entity == rec.entity) then
-    -- compare by stored unit_number too: the ref may already be detached
-    if not (rec and rec.unit_number and entity.unit_number == rec.unit_number) then return end
-  end
+  local name = companion_name_of(entity)
+  if not name then return end
   M.push("died", string.format(
-    "I died at (%.1f, %.1f)! My items dropped there. Use respawn, then decide whether to recover them.",
-    entity.position.x, entity.position.y))
+    '%s died at (%.1f, %.1f)! Their items dropped there. Respawn with {"name":"%s"}, then decide whether to recover them.',
+    name, entity.position.x, entity.position.y, name), { companion = name })
 end
 
 function M.on_research_finished(event)

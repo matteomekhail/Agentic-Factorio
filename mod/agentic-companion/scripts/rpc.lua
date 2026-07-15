@@ -3,6 +3,8 @@
 -- connection as a {ok, data|error} JSON envelope. Envelopes larger than
 -- CHUNK_SIZE are stored in storage.rpc_outbox and streamed back to the
 -- companion part by part via get_chunk.
+local companion = require("scripts.companion")
+
 local M = {}
 
 M.handlers = {}
@@ -65,7 +67,11 @@ function M.dispatch(method, params_json)
     end
     params = decoded
   end
+  -- Which companion this call acts on (default "AI"); handlers and the code
+  -- they call read it through companion.context()/get().
+  companion.set_context(params.companion)
   local ok, result = pcall(handler, params)
+  companion.set_context(nil)
   if ok then
     respond({ ok = true, data = result or {} }, method == "get_chunk")
   else
