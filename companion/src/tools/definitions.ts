@@ -884,6 +884,76 @@ export function toolSpecs(): ToolSpec[] {
     ),
 
     spec(
+      "list_trains",
+      "Overview of every train on the surface (id, state, manual/automatic, locomotives+wagons, position, current station, schedule, cargo) plus the list of existing train stop names. Use it before set_train_schedule. Rails, stops and locomotives are BUILT with the normal build tools (build_plan/place_entity); this manages what's on the rails.",
+      z.object({}),
+      async (bridge) => {
+        const res = await bridge.call<{
+          trains: Array<Record<string, unknown>>;
+          stations: string[] | Record<string, never>;
+        }>("list_trains", {});
+        const trains = asArray(res.trains as never[]) as Array<any>;
+        const stations = asArray(res.stations);
+        const lines: string[] = [];
+        if (trains.length === 0) lines.push("No trains on this surface.");
+        for (const t of trains) {
+          const bits = [
+            `train #${t.id}: ${t.locomotives ?? "?"} loco + ${t.wagons ?? 0} wagon(s)`,
+            t.manual ? "MANUAL mode" : "automatic",
+            `state ${String(t.state).replace(/_/g, " ")}`,
+          ];
+          if (t.position) bits.push(`at (${t.position.x}, ${t.position.y})`);
+          if (t.at_station) bits.push(`stopped at "${t.at_station}"`);
+          if (t.schedule) bits.push(`route: ${(t.schedule as string[]).join(" → ")}`);
+          if (t.cargo) {
+            bits.push(
+              `cargo: ${Object.entries(t.cargo as Record<string, number>)
+                .map(([n, c]) => `${n} x${c}`)
+                .join(", ")}`,
+            );
+          }
+          lines.push(bits.join("; "));
+        }
+        lines.push(
+          stations.length > 0
+            ? `Train stops: ${stations.map((s) => `"${s}"`).join(", ")}.`
+            : "No train stops built yet.",
+        );
+        return lines.join("\n");
+      },
+    ),
+
+    spec(
+      "set_train_schedule",
+      'Set a train\'s route and switch it to automatic. Each stop is an existing train-stop NAME (see list_trains) with a wait condition: "full" (until loaded), "empty" (until unloaded), or a number of seconds (default 5). Locomotives need fuel — the result warns when the train has none.',
+      z.object({
+        train_id: z.number().int().describe("train id from list_trains"),
+        stops: z
+          .array(
+            z.object({
+              station: z.string().describe("exact train stop name (case matters)"),
+              wait: z
+                .union([z.literal("full"), z.literal("empty"), z.number().positive()])
+                .optional()
+                .describe('"full" | "empty" | seconds (default 5s)'),
+            }),
+          )
+          .min(1)
+          .max(10),
+      }),
+      async (bridge, { train_id, stops }) => {
+        const res = await bridge.call<{
+          train_id: number;
+          stops: number;
+          running: boolean;
+          fueled: boolean;
+        }>("set_train_schedule", { train_id, stops });
+        const fuel = res.fueled ? "" : " WARNING: no fuel in its locomotives — load some or it won't move.";
+        return `Train #${res.train_id} set to automatic with ${res.stops} stop(s).${fuel}`;
+      },
+    ),
+
+    spec(
       "start_research",
       'Queue a technology for research (e.g. "automation", "logistics"). Instant to queue — the labs still need science packs to make progress. Errors if the technology is unknown or already researched.',
       z.object({ technology: z.string().describe('technology name, e.g. "automation"') }),
