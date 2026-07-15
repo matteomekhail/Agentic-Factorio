@@ -202,7 +202,7 @@ Scrivi in chat frasi normali — non servono comandi. Esempi che funzionano:
 | Minare ferro/alberi/rocce | «vai a minare 20 di ferro» · «taglia 10 alberi» |
 | Piazzare edifici | «piazza una trivella a carbone sul ferro» |
 | Costruire strutture complesse | «costruisci una farm di ferro automatica: trivelle sul giacimento con casse all'uscita» |
-| Blueprint | «costruisci questa blueprint: 0eNq…» |
+| Blueprint | «che blueprint ho?» · prendi una print in mano (o tienila in inventario/libro) e digli «costruiscila qui» — le legge da solo, senza incollare stringhe. (La finestra Libreria resta invisibile alle mod; l'incolla-stringa funziona sempre) |
 | Craftare | «crafta 10 ingranaggi di ferro» |
 | Caricare macchine | «metti 10 carbone nel forno vicino a me» |
 | Scaricare macchine | «svuota il forno e tieniti le piastre» |

@@ -321,6 +321,29 @@ function formatPrototype(name: string, p: PrototypeInfo): string {
 
 /** Wraps a typed run function into a ToolSpec: re-validates args with the
  *  schema and converts any failure into an "Error: ..." string. */
+function formatImported(bp: ImportedBlueprint): string {
+  const entities = asArray(bp.entities);
+  const lines = entities
+    .slice(0, 60)
+    .map(
+      (e) =>
+        `  ${e.name} at +(${e.position.x}, ${e.position.y})${e.direction ? ` dir ${e.direction}` : ""}${e.recipe ? ` recipe ${e.recipe}` : ""}`,
+    );
+  if (entities.length > 60) lines.push(`  … and ${entities.length - 60} more`);
+  const needed = Object.entries(bp.items_needed ?? {})
+    .map(([n, c]) => `${n} x${c}`)
+    .join(", ");
+  const skipped = asArray((bp.skipped as string[] | undefined) ?? []);
+  return [
+    `Blueprint${bp.label ? ` "${bp.label}"` : ""}: ${entities.length} entities, ${bp.size.w}x${bp.size.h} tiles. Positions are RELATIVE — add your anchor before building.`,
+    ...lines,
+    `Items needed: ${needed || "none"}.`,
+    skipped.length > 0 ? `Skipped (unknown here): ${skipped.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 const companionField = z
   .string()
   .max(20)
@@ -929,23 +952,44 @@ export function toolSpecs(): ToolSpec[] {
       z.object({
         string: z.string().min(10).describe("the blueprint export string"),
       }),
-      async (bridge, { string }) => {
-        const bp = await bridge.call<ImportedBlueprint>("import_blueprint", { string });
-        const entities = asArray(bp.entities);
-        const lines = entities
-          .slice(0, 60)
-          .map((e) => `  ${e.name} at +(${e.position.x}, ${e.position.y})${e.direction ? ` dir ${e.direction}` : ""}${e.recipe ? ` recipe ${e.recipe}` : ""}`);
-        if (entities.length > 60) lines.push(`  … and ${entities.length - 60} more`);
-        const needed = Object.entries(bp.items_needed ?? {})
-          .map(([n, c]) => `${n} x${c}`)
-          .join(", ");
-        const skipped = asArray(bp.skipped as string[] | undefined ?? []);
-        return [
-          `Blueprint${bp.label ? ` "${bp.label}"` : ""}: ${entities.length} entities, ${bp.size.w}x${bp.size.h} tiles. Positions are RELATIVE — add your anchor before building.`,
-          ...lines,
-          `Items needed: ${needed || "none"}.`,
-          skipped.length > 0 ? `Skipped (unknown here): ${skipped.join(", ")}.` : "",
-        ].filter(Boolean).join("\n");
+      async (bridge, { string }) =>
+        formatImported(await bridge.call<ImportedBlueprint>("import_blueprint", { string })),
+    ),
+
+    spec(
+      "list_blueprints",
+      "List every blueprint the AI can reach WITHOUT the player pasting anything: held on the player's cursor (pick one from the library and it becomes readable!), in the player's inventory, inside blueprint books, or in a companion's inventory. Returns labels + where each print lives. The library WINDOW itself is invisible to mods — this is how the player shares prints: hold or carry them.",
+      z.object({
+        player: z.string().optional().describe("player name; defaults to the first connected player"),
+      }),
+      async (bridge, { player }) => {
+        const res = await bridge.call<{
+          blueprints: Array<{ label?: string; where: string; entity_count: number }> | Record<string, never>;
+          note: string;
+        }>("list_blueprints", { player });
+        const bps = asArray(res.blueprints);
+        if (bps.length === 0) {
+          return "No blueprints reachable. Ask the player to hold one on the cursor (from the library) or keep some in their inventory/a book — or paste an export string (import_blueprint).";
+        }
+        return bps
+          .map((b) => `"${b.label ?? "(unnamed)"}" — ${b.entity_count} entities — ${b.where}`)
+          .join("\n");
+      },
+    ),
+
+    spec(
+      "read_blueprint",
+      'Decode one of the player\'s reachable blueprints by label (see list_blueprints), or whatever they are HOLDING on the cursor when label is omitted — the natural flow for "costruisci questa qui". Same output as import_blueprint: RELATIVE positions to anchor and feed to build_plan, plus the item bill.',
+      z.object({
+        label: z.string().optional().describe("blueprint label (case-insensitive, partial ok); omit = the held one"),
+        player: z.string().optional().describe("player name; defaults to the first connected player"),
+      }),
+      async (bridge, { label, player }) => {
+        const bp = await bridge.call<ImportedBlueprint & { where?: string }>("read_blueprint", {
+          label,
+          player,
+        });
+        return (bp.where ? `Source: ${bp.where}.\n` : "") + formatImported(bp);
       },
     ),
 
