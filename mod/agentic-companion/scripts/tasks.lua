@@ -32,6 +32,7 @@ local runners = {
   deliver = transfer.deliver,
   keep_fueled = refuel,
   drive_to = drive,
+  defend_area = require("scripts.actions.defend"),
   build_plan = build_plan,
   deconstruct = deconstruct,
   fight = fight,
