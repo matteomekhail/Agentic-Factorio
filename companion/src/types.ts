@@ -251,6 +251,8 @@ export type Task =
   | { type: "insert"; target: Position; items: Record<string, number> }
   | { type: "extract"; target: Position; items?: Record<string, number>; all?: boolean }
   | { type: "deliver"; items?: Record<string, number>; all?: boolean; player?: string }
+  // Persistent caretaker: tops up burner machines around the anchor until cancelled.
+  | { type: "keep_fueled"; center?: Position; radius?: number; fuel?: string }
   | { type: "set_recipe"; target: Position; recipe: string }
   | { type: "rotate"; target: Position; direction?: number }
   // Sequential multi-entity build; max 100 steps, failed steps skipped unless stop_on_error.
