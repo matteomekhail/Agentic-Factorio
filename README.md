@@ -82,6 +82,14 @@ pathfinding) · follow you · mine ore / trees / rocks in bulk · place building
 craft items · load & unload machines · change recipes · rotate entities · start
 research · respawn after death. Every positional action auto-walks into reach first.
 
+New in M7: one-call factory diagnosis (analyze_factory: stuck machines grouped
+with missing ingredients + electric grid summary) · per-minute production rates
+and power stats in its perception · item delivery to a (moving) player · car
+driving with self-fueling and honest stuck handling · persistent duties:
+keep_fueled (tops up burners in an area) and defend_area (fights intruders,
+refills turrets, repairs structures) · train management (fleet overview,
+schedules, dispatch).
+
 It also builds free-form layouts from a plain description — spatial tools (ASCII
 area scan, exact machine footprints, placement dry-runs, batched build plans) let
 the model compute the coordinates itself · imports blueprint strings and builds
