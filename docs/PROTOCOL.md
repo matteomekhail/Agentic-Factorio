@@ -257,18 +257,44 @@ next enemy until none left → done "cleared, N kills". Fails cleanly when no gu
 first"), reports "out of ammo" mid-fight, flees + reports when health drops below the threshold.
 get_state's companion block gains `"equipment": {"gun":"pistol","ammo":{"firearm-magazine":57},"armor":null}`.
 
-### Blueprints (instant method)
+### Blueprints (instant methods)
 
-`import_blueprint` — `{ "string": "0eNq..." }` →
+Three ways in, one normalized shape out:
+
+`import_blueprint` — `{ "string": "0eNq...", "offset?": 0, "limit?": 100 }`
+`list_blueprints` — `{ "player?": "name" }`
+`read_blueprint` — `{ "label?": "...", "book?": "...", "offset?": 0, "limit?": 100, "player?": "name" }`
+
+The decoded shape (import/read):
 ```jsonc
-{ "label": "Mining outpost", "size": {"w": 12, "h": 8},
+{ "label": "Mining outpost", "size": {"w": 12, "h": 8},   // footprint of the WHOLE print
+  "total_entities": 350, "offset": 0,                       // window bookkeeping
   "entities": [ {"name":"burner-mining-drill","position":{"x":0,"y":0},"direction":4,"recipe":null}, ... ],
-  "items_needed": {"burner-mining-drill":6,"wooden-chest":6} }
+  "next_offset": 100,                                       // absent on the last window
+  "items_needed": {"burner-mining-drill":6,"wooden-chest":6}, // whole print, not the window
+  "skipped": ["some-modded-entity"],                        // unknown here, dropped
+  "tiles": {"count": 128, "kinds": ["concrete"]} }          // flooring; no tool places tiles
 ```
-Decodes via a scratch inventory + `import_stack` + `get_blueprint_entities`; positions normalized
-so the top-left entity sits at (0,0). **Does not build** — the model offsets the coordinates and
-feeds them to `build_plan`. Tiles in the blueprint are ignored; report unknown/modded entities in
-an `"skipped"` list.
+Decodes via `import_stack` + `get_blueprint_entities` (a scratch inventory for pasted strings);
+positions normalized so the whole print's top-left entity sits at (0,0) — the origin never moves
+with the window, so every batch shares one anchor. **Does not build** — the model offsets the
+coordinates and feeds them to `build_plan`. Huge prints are read in `offset`/`limit` windows
+(default 100 = one `build_plan` batch, max 200).
+
+`list_blueprints` enumerates every reachable print: the player's cursor (item or 2.0 library
+record), main inventories, and blueprint books — recursing into nested books (depth ≤ 4) — for
+the player and every companion. Returns `{ blueprints: [{label, where, book?, entity_count}],
+total, note }` (capped at 200 entries). The game's blueprint LIBRARY window is client-side and
+invisible to mods. `read_blueprint` picks by label (exact, then substring, case-insensitive);
+`book` filters to matching book paths first — that's how duplicate labels across books are
+disambiguated.
+
+**Starter books**: the default companion spawns carrying the blueprint books generated from
+`BlueprintBooks/*.txt` (see `scripts/build-starter-blueprints.mjs` → generated
+`mod/scripts/starter_blueprints.lua`, issued by `mod/scripts/starter.lua`). The data carries a
+content-hash `version`; a 120-tick handler re-issues the set to a running save whenever the
+version changes (old starter books are removed by label — companion-renamed books are left
+alone).
 
 ## v4 — events & multi-companion
 

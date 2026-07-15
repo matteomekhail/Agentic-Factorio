@@ -57,7 +57,10 @@ remote.add_interface("agentic", {
 script.on_init(state.init)
 script.on_configuration_changed(state.init)
 script.on_event(defines.events.on_console_chat, chat.on_console_chat)
-script.on_nth_tick(120, companion.update_map_tag)
+script.on_nth_tick(120, function()
+  companion.update_map_tag()
+  companion.ensure_starter_books()
+end)
 script.on_event(defines.events.on_tick, tasks.on_tick)
 script.on_event(defines.events.on_script_path_request_finished, walk.on_path_finished)
 script.on_event(defines.events.on_entity_damaged, events.on_entity_damaged,

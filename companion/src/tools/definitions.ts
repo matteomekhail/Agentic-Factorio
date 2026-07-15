@@ -323,22 +323,33 @@ function formatPrototype(name: string, p: PrototypeInfo): string {
  *  schema and converts any failure into an "Error: ..." string. */
 function formatImported(bp: ImportedBlueprint): string {
   const entities = asArray(bp.entities);
-  const lines = entities
-    .slice(0, 60)
-    .map(
-      (e) =>
-        `  ${e.name} at +(${e.position.x}, ${e.position.y})${e.direction ? ` dir ${e.direction}` : ""}${e.recipe ? ` recipe ${e.recipe}` : ""}`,
-    );
-  if (entities.length > 60) lines.push(`  … and ${entities.length - 60} more`);
+  // Print the WHOLE window: build_plan needs every position, and the window
+  // size is already capped mod-side (default 100, max 200).
+  const lines = entities.map(
+    (e) =>
+      `  ${e.name} at +(${e.position.x}, ${e.position.y})${e.direction ? ` dir ${e.direction}` : ""}${e.recipe ? ` recipe ${e.recipe}` : ""}`,
+  );
   const needed = Object.entries(bp.items_needed ?? {})
     .map(([n, c]) => `${n} x${c}`)
     .join(", ");
   const skipped = asArray((bp.skipped as string[] | undefined) ?? []);
+  const total = bp.total_entities ?? entities.length;
+  const offset = bp.offset ?? 0;
+  const windowNote =
+    total > entities.length
+      ? ` Showing entities ${offset + 1}–${offset + entities.length} of ${total}.`
+      : "";
   return [
-    `Blueprint${bp.label ? ` "${bp.label}"` : ""}: ${entities.length} entities, ${bp.size.w}x${bp.size.h} tiles. Positions are RELATIVE — add your anchor before building.`,
+    `Blueprint${bp.label ? ` "${bp.label}"` : ""}: ${total} entities, ${bp.size.w}x${bp.size.h} tiles footprint. Positions are RELATIVE — add your anchor before building.${windowNote}`,
     ...lines,
-    `Items needed: ${needed || "none"}.`,
+    bp.next_offset !== undefined
+      ? `… more entities follow — build this batch, then read again with offset=${bp.next_offset} and the SAME anchor.`
+      : "",
+    `Items needed (whole print): ${needed || "none"}.`,
     skipped.length > 0 ? `Skipped (unknown here): ${skipped.join(", ")}.` : "",
+    bp.tiles
+      ? `Also ${bp.tiles.count} floor tiles (${asArray(bp.tiles.kinds).join(", ")}) — no tool places tiles, so the ground must already be walkable/buildable.`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -948,45 +959,81 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "import_blueprint",
-      "Decode a Factorio blueprint export string (the 0eNq… text) into its entity list: names, RELATIVE positions (top-left entity at 0,0), directions, recipes, plus the total items needed. It does NOT build — pick an anchor spot (find_buildable_area helps), ADD the anchor coordinates to every relative position, and feed the result to build_plan once you have the items.",
+      "Decode a Factorio blueprint export string (the 0eNq… text) into its entity list: names, RELATIVE positions (top-left entity at 0,0), directions, recipes, plus the total items needed. It does NOT build — pick an anchor spot (find_buildable_area helps), ADD the anchor coordinates to every relative position, and feed the result to build_plan once you have the items. Big prints come in windows: repeat with the returned next offset and the SAME anchor.",
       z.object({
         string: z.string().min(10).describe("the blueprint export string"),
+        offset: z.number().int().min(0).optional().describe("skip this many entities (0-based; default 0)"),
+        limit: z.number().int().min(1).max(200).optional().describe("window size (default 100 — one build_plan batch)"),
       }),
-      async (bridge, { string }) =>
-        formatImported(await bridge.call<ImportedBlueprint>("import_blueprint", { string })),
+      async (bridge, { string, offset, limit }) =>
+        formatImported(
+          await bridge.call<ImportedBlueprint>("import_blueprint", { string, offset, limit }),
+        ),
     ),
 
     spec(
       "list_blueprints",
-      "List every blueprint the AI can reach WITHOUT the player pasting anything: held on the player's cursor (pick one from the library and it becomes readable!), in the player's inventory, inside blueprint books, or in a companion's inventory. Returns labels + where each print lives. The library WINDOW itself is invisible to mods — this is how the player shares prints: hold or carry them.",
+      "List every blueprint the AI can reach WITHOUT the player pasting anything: the STARTER BOOKS in the default companion's inventory (a curated library of power/smelting/bus/rail designs — check here before designing from scratch), whatever the player holds on the cursor or carries, and every blueprint book (nested books included). Returns labels + where each print lives. The library WINDOW itself is invisible to mods — the player shares prints by holding or carrying them.",
       z.object({
         player: z.string().optional().describe("player name; defaults to the first connected player"),
       }),
       async (bridge, { player }) => {
         const res = await bridge.call<{
-          blueprints: Array<{ label?: string; where: string; entity_count: number }> | Record<string, never>;
+          blueprints:
+            | Array<{ label?: string; where: string; book?: string; entity_count: number }>
+            | Record<string, never>;
+          total?: number;
           note: string;
         }>("list_blueprints", { player });
         const bps = asArray(res.blueprints);
         if (bps.length === 0) {
           return "No blueprints reachable. Ask the player to hold one on the cursor (from the library) or keep some in their inventory/a book — or paste an export string (import_blueprint).";
         }
-        return bps
-          .map((b) => `"${b.label ?? "(unnamed)"}" — ${b.entity_count} entities — ${b.where}`)
-          .join("\n");
+        // Group by container (inventory/book path) so 100+ prints stay readable.
+        const groups = new Map<string, typeof bps>();
+        for (const b of bps) {
+          const group = groups.get(b.where);
+          if (group) group.push(b);
+          else groups.set(b.where, [b]);
+        }
+        const lines: string[] = [];
+        for (const [where, group] of groups) {
+          const only = group.length === 1 ? group[0] : undefined;
+          if (only) {
+            lines.push(`"${only.label ?? "(unnamed)"}" (${only.entity_count} entities) — ${where}`);
+          } else {
+            lines.push(`${where} — ${group.length} prints:`);
+            lines.push(
+              "  " + group.map((b) => `"${b.label ?? "(unnamed)"}" (${b.entity_count})`).join(", "),
+            );
+          }
+        }
+        const total = res.total ?? bps.length;
+        if (total > bps.length) lines.push(`… and ${total - bps.length} more not shown.`);
+        lines.push("Read one with read_blueprint {label} (add book to disambiguate duplicates).");
+        return lines.join("\n");
       },
     ),
 
     spec(
       "read_blueprint",
-      'Decode one of the player\'s reachable blueprints by label (see list_blueprints), or whatever they are HOLDING on the cursor when label is omitted — the natural flow for "costruisci questa qui". Same output as import_blueprint: RELATIVE positions to anchor and feed to build_plan, plus the item bill.',
+      'Decode one reachable blueprint by label (see list_blueprints — the starter books count), or whatever the player is HOLDING on the cursor when label is omitted — the natural flow for "costruisci questa qui". Same output as import_blueprint: RELATIVE positions to anchor and feed to build_plan, plus the whole print\'s item bill. Big prints come in windows of 100: build the batch, then call again with the returned next offset and the SAME anchor.',
       z.object({
         label: z.string().optional().describe("blueprint label (case-insensitive, partial ok); omit = the held one"),
+        book: z
+          .string()
+          .optional()
+          .describe("only look inside books whose name matches this (case-insensitive, partial ok)"),
+        offset: z.number().int().min(0).optional().describe("skip this many entities (0-based; default 0)"),
+        limit: z.number().int().min(1).max(200).optional().describe("window size (default 100 — one build_plan batch)"),
         player: z.string().optional().describe("player name; defaults to the first connected player"),
       }),
-      async (bridge, { label, player }) => {
+      async (bridge, { label, book, offset, limit, player }) => {
         const bp = await bridge.call<ImportedBlueprint & { where?: string }>("read_blueprint", {
           label,
+          book,
+          offset,
+          limit,
           player,
         });
         return (bp.where ? `Source: ${bp.where}.\n` : "") + formatImported(bp);

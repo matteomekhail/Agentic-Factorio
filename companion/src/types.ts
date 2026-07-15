@@ -233,11 +233,23 @@ export interface BlueprintEntity {
 /** Result of the `import_blueprint` method. Decodes only — never builds. */
 export interface ImportedBlueprint {
   label?: string;
+  /** Footprint of the WHOLE print, not just the returned window. */
   size: { w: number; h: number };
+  /** Valid entities in the whole print (the window may be smaller). */
+  total_entities: number;
+  /** 0-based index of the first entity in `entities`. */
+  offset: number;
+  /** ONE window of entities — huge prints are read in offset/limit batches,
+   *  all sharing the same origin (top-left entity of the whole print). */
   entities: BlueprintEntity[] | Record<string, never>;
+  /** Present when more entities follow: pass it as the next call's offset. */
+  next_offset?: number;
+  /** Item bill for the WHOLE print, not just this window. */
   items_needed: Record<string, number> | Record<string, never>;
   /** Unknown/modded entity names that were dropped from the list. */
   skipped?: string[] | Record<string, never>;
+  /** Flooring (concrete/landfill) in the print — there's no tile-placing tool. */
+  tiles?: { count: number; kinds: string[] | Record<string, never> };
 }
 
 /** One step of a `build_plan` task. */

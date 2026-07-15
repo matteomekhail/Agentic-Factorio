@@ -10,7 +10,9 @@
     "test": "npm run test -w companion",
     "typecheck": "npm run typecheck -w companion",
     "play": "npm run play -w companion",
-    "package:mod": "bash scripts/package-mod.sh"
+    "package:mod": "bash scripts/package-mod.sh",
+    "blueprints:build": "node scripts/build-starter-blueprints.mjs",
+    "test:mod": "lua tests/mod/starter_and_blueprint_test.lua"
   },
   "engines": {
     "node": ">=22"
