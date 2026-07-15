@@ -231,6 +231,11 @@ local function collect_power(surface, force, origin, radius, structures)
   return out
 end
 
+-- Shared with scripts/analyze.lua.
+function M.power_summary(surface, force, origin, radius, structures)
+  return collect_power(surface, force, origin, radius, structures)
+end
+
 function M.get_state(params)
   local radius = math.max(1, math.min(tonumber(params.radius) or DEFAULT_RADIUS, MAX_RADIUS))
   local c = companion.get()
