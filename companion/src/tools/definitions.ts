@@ -180,6 +180,21 @@ function formatInspect(e: InspectResult): string {
   }
   if (e.energy) parts.push(`Energy: ${num(Math.round(e.energy))}.`);
   if (e.amount !== undefined) parts.push(`Resource amount left: ${num(e.amount)}.`);
+  if (e.belt_contents) {
+    const items = Object.entries(e.belt_contents);
+    parts.push(
+      items.length === 0
+        ? "Nothing on the belt."
+        : `On the belt: ${items.map(([n, q]) => `${n} x${q}`).join(", ")}.`,
+    );
+  }
+  if (e.fluids) {
+    const fluids = Object.entries(e.fluids);
+    if (fluids.length > 0) {
+      parts.push(`Fluids: ${fluids.map(([n, q]) => `${n} ${num(q)}`).join(", ")}.`);
+    }
+  }
+  if (e.no_fluids) parts.push("Fluid system: completely empty.");
   if (e.inventories) {
     for (const [invName, contents] of Object.entries(e.inventories)) {
       const items = Object.entries(contents);
@@ -343,7 +358,7 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "inspect_entity",
-      "Inspect ONE entity near a map position (searched within 1.5 tiles): type, status, recipe, crafting progress and inventory contents. Use it to check what a machine or chest holds before inserting/extracting, or how much ore a resource tile has left. Returns a plain-text report.",
+      "Inspect ONE entity near a map position (searched within 1.5 tiles): type, status, recipe, crafting progress, inventory contents, items sitting ON a belt (transport lines), and fluids inside pipes/tanks/machines (or that the fluid system is dry). Use it to check machines, chests, belts and pipes — never run raw console commands for this. Returns a plain-text report.",
       z.object({ x: z.number(), y: z.number() }),
       async (bridge, { x, y }) =>
         formatInspect(await bridge.call<InspectResult>("inspect", { position: { x, y } })),

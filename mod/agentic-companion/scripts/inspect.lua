@@ -59,6 +59,75 @@ local function collect_inventories(entity)
   return nil
 end
 
+-- Items sitting on belt-like entities. Transport line contents come back as
+-- an array of {name, count, quality} in 2.x (dict in older styles) — handle both.
+local BELT_TYPES = {
+  ["transport-belt"] = true,
+  ["underground-belt"] = true,
+  ["splitter"] = true,
+  ["loader"] = true,
+  ["loader-1x1"] = true,
+  ["linked-belt"] = true,
+}
+
+local function collect_belt_contents(e)
+  if not BELT_TYPES[e.type] then return nil end
+  local totals = {}
+  local found = false
+  local max_index = 2
+  pcall(function() max_index = e.get_max_transport_line_index() end)
+  for i = 1, max_index do
+    local ok, line = pcall(e.get_transport_line, i)
+    if ok and line then
+      local ok2, contents = pcall(line.get_contents)
+      if ok2 and type(contents) == "table" then
+        for k, v in pairs(contents) do
+          if type(v) == "table" and v.name then
+            totals[v.name] = (totals[v.name] or 0) + (v.count or 0)
+            found = true
+          elseif type(v) == "number" then
+            totals[k] = (totals[k] or 0) + v
+            found = true
+          end
+        end
+      end
+    end
+  end
+  if found then return totals end
+  return nil
+end
+
+-- Fluids in pipes, tanks, boilers, engines, crafting machines with fluid boxes.
+local function collect_fluids(e, out)
+  -- Integer amounts: x.1 fluid precision isn't useful to an LLM, and rounded
+  -- decimals serialize as long floats (87.299999…) in JSON.
+  local fluids = nil
+  local ok, contents = pcall(e.get_fluid_contents)
+  if ok and type(contents) == "table" and next(contents) ~= nil then
+    fluids = {}
+    for name, amount in pairs(contents) do
+      fluids[name] = math.floor(amount + 0.5)
+    end
+  end
+  if not fluids then
+    local count = 0
+    pcall(function() count = #e.fluidbox end)
+    if count > 0 then
+      for i = 1, count do
+        local ok2, f = pcall(function() return e.fluidbox[i] end)
+        if ok2 and f and f.name then
+          fluids = fluids or {}
+          fluids[f.name] = math.floor((fluids[f.name] or 0) + f.amount + 0.5)
+        end
+      end
+      if not fluids then
+        out.no_fluids = true -- has a fluid system, but it's dry
+      end
+    end
+  end
+  if fluids then out.fluids = fluids end
+end
+
 local function locate(params)
   if params.unit_number ~= nil then
     local n = tonumber(params.unit_number)
@@ -150,6 +219,11 @@ function M.inspect(params)
 
   local inventories = collect_inventories(e)
   if inventories then out.inventories = inventories end
+
+  local belt = collect_belt_contents(e)
+  if belt then out.belt_contents = belt end
+
+  collect_fluids(e, out)
 
   return out
 end

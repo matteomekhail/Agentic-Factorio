@@ -98,6 +98,12 @@ export interface InspectResult {
     | Record<string, never>;
   /** Resources only. */
   amount?: number;
+  /** Belts/splitters/undergrounds/loaders: items on the transport lines, summed. */
+  belt_contents?: Record<string, number> | Record<string, never>;
+  /** Pipes/tanks/machines with fluid boxes: fluid name -> amount. */
+  fluids?: Record<string, number> | Record<string, never>;
+  /** Set when the entity has a fluid system but it's completely dry. */
+  no_fluids?: boolean;
 }
 
 export interface StartResearchResult {

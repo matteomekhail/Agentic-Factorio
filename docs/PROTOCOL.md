@@ -88,7 +88,10 @@ Details of ONE entity (searched within 1.5 tiles of position):
   "crafting_progress":0.5,                   // omit if n/a
   "energy":2000,                             // omit if 0/n-a
   "inventories": {"input":{"iron-ore":5},"output":{"iron-plate":3},"fuel":{"coal":10}},
-  "amount": 4400                             // resources only
+  "amount": 4400,                            // resources only
+  "belt_contents": {"iron-plate": 4},        // belts/splitters/undergrounds/loaders: items on the lines
+  "fluids": {"water": 812.5},                // pipes/tanks/machines with fluid boxes
+  "no_fluids": true                          // set instead of fluids when the fluid system is dry
 }
 ```
 
