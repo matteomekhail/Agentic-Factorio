@@ -208,6 +208,10 @@ Scrivi in chat frasi normali — non servono comandi. Esempi che funzionano:
 | Avviare ricerche | «avvia la ricerca della logistica» |
 | Respawn | «torna in vita» (se è morto) |
 
+Per trovarlo in gioco: ha un'etichetta **AI** fluttuante sopra la testa, un marker
+**AI** sulla mappa/minimappa che lo segue, e se gli chiedi «dove sei?» risponde con un
+ping cliccabile che apre la mappa sulla sua posizione.
+
 Non devi dirgli di avvicinarsi prima: ogni azione su una posizione **cammina da sola
 fino a portata** usando il pathfinder del gioco. E una garanzia di sicurezza: il
 companion può demolire i tuoi edifici, ma **solo se glielo chiedi esplicitamente**
