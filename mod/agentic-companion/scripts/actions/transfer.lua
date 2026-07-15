@@ -101,9 +101,14 @@ function M.insert.tick(task)
     }
   end
   local extra = #problems > 0 and ("; " .. table.concat(problems, "; ")) or ""
+  -- Automation nudge: hand-feeding smelters is a treadmill.
+  local tip = ""
+  if e.type == "furnace" then
+    tip = " — tip: a burner drill placed facing this furnace (or an inserter from a belt) would feed it automatically"
+  end
   return {
     status = "done",
-    detail = string.format("inserted %s into the %s%s", table.concat(moved, ", "), e.name, extra),
+    detail = string.format("inserted %s into the %s%s%s", table.concat(moved, ", "), e.name, extra, tip),
   }
 end
 

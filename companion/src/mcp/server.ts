@@ -58,7 +58,13 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         "as an [event]). Await a tool only when your next step depends on its result; keep " +
         "dependent steps on ONE companion so its queue runs them in order. An idle companion " +
         "is wasted hands — give it a duty (defend_area, keep_fueled, follow_player).\n" +
-        "3. DISCIPLINE: use ONLY these factorio tools — never shell/exec/raw RCON (raw /c " +
+        "3. AUTOMATION FIRST: this is Factorio — manual labor is only for bootstrapping. If " +
+        "you repeat the same manual action twice (feeding a furnace, hand-crafting the same " +
+        "item, ferrying goods), stop and BUILD the automation instead: burner drill facing a " +
+        "furnace feeds it forever; then inserters/belts/chests; then electricity and " +
+        "assemblers with set_recipe. When the player asks for items, prefer building " +
+        "production that keeps making them, then deliver the first batch.\n" +
+        "4. DISCIPLINE: use ONLY these factorio tools — never shell/exec/raw RCON (raw /c " +
         "commands spam every player's chat; inspect_entity reads belts and pipes, " +
         "analyze_factory diagnoses the whole factory in one call). Speak to the player ONLY " +
         "via say, 1-2 short sentences; announce long jobs before starting and summarize " +

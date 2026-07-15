@@ -318,29 +318,6 @@ function formatPrototype(name: string, p: PrototypeInfo): string {
   return `${name}: ${bits.join(", ")}`;
 }
 
-function formatBlueprint(bp: ImportedBlueprint): string {
-  const entities = asArray(bp.entities);
-  const lines: string[] = [];
-  lines.push(
-    `Blueprint ${bp.label ? `"${bp.label}"` : "(unnamed)"} — ${bp.size.w}x${bp.size.h} tiles, ` +
-      `${entities.length} entities. Positions are RELATIVE (top-left entity at (0,0)): ` +
-      `add your chosen anchor coordinates to every x,y before building with build_plan.`,
-  );
-  for (const e of entities) {
-    const facing = e.direction !== undefined ? `, facing ${dirName(e.direction)}` : "";
-    const recipe = e.recipe ? `, recipe ${e.recipe}` : "";
-    lines.push(`- ${e.name} at (${e.position.x}, ${e.position.y})${facing}${recipe}`);
-  }
-  const needed = Object.entries(bp.items_needed ?? {});
-  if (needed.length > 0) {
-    lines.push(`Items needed: ${needed.map(([n, q]) => `${n} x${q}`).join(", ")}.`);
-  }
-  const skipped = asArray(bp.skipped);
-  if (skipped.length > 0) {
-    lines.push(`Skipped (unknown or modded, not in the list above): ${skipped.join(", ")}.`);
-  }
-  return lines.join("\n");
-}
 
 /** Wraps a typed run function into a ToolSpec: re-validates args with the
  *  schema and converts any failure into an "Error: ..." string. */
@@ -721,7 +698,7 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "craft_items",
-      'Hand-craft items using your character crafting queue (e.g. recipe "iron-gear-wheel"). Missing intermediates are crafted automatically when possible; otherwise the error lists exactly which ingredients you are short of. Takes real time.',
+      'Hand-craft items using your character crafting queue (e.g. recipe "iron-gear-wheel"). FOR BOOTSTRAP AND ONE-OFFS ONLY: anything you need repeatedly should come from an assembling machine with set_recipe plus inserters — build the line instead of crafting the same thing again. Missing intermediates are crafted automatically when possible; otherwise the error lists exactly which ingredients you are short of. Takes real time.',
       z.object({
         recipe: z.string().describe('recipe name, usually the item name, e.g. "iron-gear-wheel"'),
         count: z.number().int().min(1).max(100).optional().describe("how many to craft, default 1"),
@@ -735,7 +712,7 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "insert_items",
-      "Move items from your inventory INTO a machine, chest or furnace at the given position (fuel lands in the fuel slot, ingredients in the input). You auto-walk within reach first. Partial inserts are reported in the result sentence.",
+      "Move items from your inventory INTO a machine, chest or furnace at the given position (fuel lands in the fuel slot, ingredients in the input). You auto-walk within reach first. Partial inserts are reported. NOTE: hand-feeding the same machine repeatedly is a treadmill — build a drill/inserter/belt to feed it automatically (or keep_fueled duty for fuel) after the first top-up.",
       z.object({ x: z.number(), y: z.number(), items: itemsField }),
       async (bridge, { x, y, items }) =>
         bridge.enqueueAndWait(
