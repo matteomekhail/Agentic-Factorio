@@ -157,19 +157,24 @@ local function locate(params)
     surface = player.surface
   end
 
+  -- Preference order: buildings/machines > resources > characters. A chest
+  -- standing on an ore tile must resolve to the chest, not the ore under it.
   local best, best_d = nil, math.huge
+  local best_res, best_res_d = nil, math.huge
   local best_char, best_char_d = nil, math.huge
   for _, e in ipairs(surface.find_entities_filtered({ position = target, radius = SEARCH_RADIUS })) do
     if e.valid then
       local d = distance(e.position, target)
       if e.type == "character" then
         if d < best_char_d then best_char, best_char_d = e, d end
+      elseif e.type == "resource" then
+        if d < best_res_d then best_res, best_res_d = e, d end
       elseif d < best_d then
         best, best_d = e, d
       end
     end
   end
-  local entity = best or best_char
+  local entity = best or best_res or best_char
   if not entity then
     error(string.format(
       "nothing to inspect within %.1f tiles of (%.1f, %.1f) — check the position or look_around first",
