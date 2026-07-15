@@ -204,6 +204,12 @@ Scrivi in chat frasi normali — non servono comandi. Esempi che funzionano:
 | Cambiare ricette | «imposta l'assemblatore sul cavo di rame» |
 | Ruotare | «ruota quel nastro verso sud» |
 | Demolire (solo su tua richiesta esplicita) | «demolisci quel forno» |
+| Diagnosticare la fabbrica | «che problemi ha la fabbrica?» (una chiamata: macchine ferme raggruppate, ingredienti mancanti, quadro elettrico) |
+| Portarti le cose | «portami 50 piastre di ferro» (ti insegue anche se ti muovi) |
+| Guidare | «prendi l'auto e vai al giacimento a ovest» (si rifornisce da solo) |
+| Fare il guardiano | «difendi questa zona» (spara agli intrusi, ricarica le torrette, ripara i danni) |
+| Fare il fuochista | «tieni riforniti i forni qui intorno» (pattuglia e ricarica il carbone) |
+| Gestire i treni | «manda il treno 2 alla Stazione Ferro e fallo aspettare finché è pieno» |
 | Combattere | «equipaggiati e ripulisci i nidi a nord» (si ritira da solo se ferito) |
 | Avviare ricerche | «avvia la ricerca della logistica» |
 | Respawn | «torna in vita» (se è morto) |
@@ -236,6 +242,9 @@ calcola lui; più la richiesta è specifica, meglio esegue.
 | `--proactive N` (flag di `play`) | Report periodici: ogni **N minuti** il companion guarda la fabbrica e parla in chat solo se c'è qualcosa che merita attenzione |
 | `--fresh` (flag di `play`) | Riparte con la memoria vuota (ignora la sessione salvata) |
 | `--brain codex` (flag di `play`) | Cervello = il tuo abbonamento ChatGPT via `codex exec`: la app ascolta la chat e sveglia Codex solo quando scrivi — niente polling |
+
+I "turni di servizio" (`seguimi`, `difendi la zona`, `tieni riforniti i forni`) durano
+finché non dici `!stop` o gli dai un altro compito.
 
 ## 8. Risoluzione problemi
 
