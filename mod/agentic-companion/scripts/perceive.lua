@@ -152,6 +152,85 @@ local function structure_groups(entities, origin, status_names)
   return list
 end
 
+-- Electric network summary. Factorio's electric statistics are INVERTED vs
+-- item statistics (verified live): input_counts = consumers, output_counts =
+-- producers. Rates read via get_flow_count over the last minute, in joules.
+local MAX_POWER_NAMES = 50
+
+local function collect_power(surface, force, origin, radius, structures)
+  local poles = surface.find_entities_filtered({
+    position = origin,
+    radius = radius,
+    type = "electric-pole",
+    force = force,
+  })
+  if #poles == 0 then return nil end
+
+  -- Pick the network with the most poles in view.
+  local by_net, best_id, best_n = {}, nil, 0
+  for _, pole in ipairs(poles) do
+    local ok, id = pcall(function() return pole.electric_network_id end)
+    if ok and id then
+      by_net[id] = by_net[id] or { n = 0, pole = pole }
+      by_net[id].n = by_net[id].n + 1
+      if by_net[id].n > best_n then
+        best_id, best_n = id, by_net[id].n
+      end
+    end
+  end
+  if not best_id then return nil end
+  local networks = 0
+  for _ in pairs(by_net) do networks = networks + 1 end
+
+  local out = { networks = networks }
+  pcall(function()
+    local st = by_net[best_id].pole.electric_network_statistics
+    local function joules_per_min(counts, category)
+      local total, seen = 0, 0
+      local per_name = {}
+      for name in pairs(counts) do
+        seen = seen + 1
+        if seen > MAX_POWER_NAMES then break end
+        local j = st.get_flow_count({
+          name = name,
+          category = category,
+          precision_index = defines.flow_precision_index.one_minute,
+          count = false,
+        })
+        per_name[name] = j
+        total = total + j
+      end
+      return total, per_name
+    end
+    local cons_j, cons_by = joules_per_min(st.input_counts, "input")
+    local prod_j, _ = joules_per_min(st.output_counts, "output")
+    -- get_flow_count returns average J/tick over the window (verified live:
+    -- a 60 kW solar panel reads 1000). kW = J/tick * 60 ticks/s / 1000.
+    local to_kw = function(j_per_tick) return math.floor(j_per_tick * 60 / 1000 + 0.5) end
+    out.production_kw = to_kw(prod_j)
+    out.consumption_kw = to_kw(cons_j)
+    local names = {}
+    for name in pairs(cons_by) do names[#names + 1] = name end
+    table.sort(names, function(a, b) return cons_by[a] > cons_by[b] end)
+    local top = {}
+    for i = 1, math.min(#names, 3) do
+      top[names[i]] = to_kw(cons_by[names[i]])
+    end
+    out.top_consumers_kw = top
+  end)
+
+  -- Machines starving for power right now (from the status histograms).
+  local starving = 0
+  for _, g in ipairs(structures or {}) do
+    if g.status then
+      starving = starving + (g.status.no_power or 0) + (g.status.low_power or 0)
+    end
+  end
+  if starving > 0 then out.starving_machines = starving end
+
+  return out
+end
+
 function M.get_state(params)
   local radius = math.max(1, math.min(tonumber(params.radius) or DEFAULT_RADIUS, MAX_RADIUS))
   local c = companion.get()
@@ -212,6 +291,9 @@ function M.get_state(params)
     surface.find_entities_filtered({ position = origin, radius = radius, force = force }),
     origin, status_names)
   if #structures > 0 then out.structures = structures end
+
+  local power = collect_power(surface, force, origin, radius, structures)
+  if power then out.power = power end
 
   local enemies = {
     spawners = surface.count_entities_filtered({

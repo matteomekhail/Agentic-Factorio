@@ -153,6 +153,24 @@ export function formatState(state: GetStateResult): string {
     );
   }
 
+  if (state.power) {
+    const p = state.power;
+    const bits: string[] = [];
+    if (p.production_kw !== undefined) {
+      bits.push(`producing ${num(p.production_kw)} kW, using ${num(p.consumption_kw ?? 0)} kW`);
+    }
+    const top = Object.entries(p.top_consumers_kw ?? {});
+    if (top.length > 0) {
+      bits.push(`top consumers: ${top.map(([n, kw]) => `${n} ${num(kw)} kW`).join(", ")}`);
+    }
+    if (p.starving_machines) {
+      bits.push(`${p.starving_machines} machine(s) starving for power`);
+    }
+    lines.push(
+      `Power (${p.networks} network${p.networks === 1 ? "" : "s"}): ${bits.join("; ") || "no flow data"}.`,
+    );
+  }
+
   if (state.production_top) {
     const prod = Object.entries(state.production_top);
     if (prod.length > 0) {
