@@ -159,12 +159,12 @@ Poi apri una sessione di Claude Code e scrivi qualcosa tipo:
    in `~/.codex/config.toml`, sotto `[mcp_servers.factorio]`:
 
    ```toml
-   tool_timeout_sec = 900
+   tool_timeout_sec = 21660
    ```
 
-   e digli di usare `wait_for_chat` con `timeout_s: 600` senza scrivere nulla tra
-   una chiamata e l'altra. (Il timeout alto serve anche ai task lunghi, tipo
-   "mina 50 di ferro".)
+   e digli di parcheggiarsi in `wait_for_chat` con `timeout_s: 21600` (6 ore:
+   da fermo non costa nulla e si sveglia all'istante quando scrivi). Così anche
+   la sessione interattiva è di fatto "sempre sveglia" finché non chiude il turno.
 
 ### 5c. API key (loop integrato)
 

@@ -48,7 +48,7 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         "You drive a CREW of up to 4 AI companion characters inside the player's running " +
         "Factorio game. When asked to play (even just 'gioca a factorio'), do this:\n" +
         "1. connect_status first; greet the player in game chat with say (mirror their " +
-        "language), then LISTEN: call wait_for_chat with timeout_s 600 in a loop, writing NO " +
+        "language), then LISTEN: park in wait_for_chat with timeout_s 21600 (6h) in a loop, writing NO " +
         "text between empty waits — just call it again. React to chat and to [event] lines " +
         "(attacks, deaths, research done, background task outcomes, supply warnings).\n" +
         "2. CREW: the 'subagents' here are in-game companions, NOT client-native agents. " +
@@ -213,19 +213,20 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
       description:
         "Wait for the next player chat message OR game event (companion attacked/died, research " +
         "finished, duty supply warnings), polling about once per second. Returns as soon as " +
-        "something new happens, or reports silence once timeout_s elapses. To listen " +
-        "continuously: call this in a loop with a LONG timeout (600) and do not write any text " +
-        "between calls when nothing happened — just call it again. " +
-        "NOTE: timeouts above ~55s require raising the MCP client's tool timeout (Codex: " +
-        "tool_timeout_sec in [mcp_servers.factorio]; Claude Code: MCP_TOOL_TIMEOUT env, ms).",
+        "something new happens, or reports silence once timeout_s elapses. To be ALWAYS reachable, " +
+        "park yourself here with timeout_s 21600 (6 hours): waiting costs nothing while idle and " +
+        "you wake instantly when the player speaks. On return, act, then park again — write no " +
+        "text between empty waits. NOTE: long timeouts require the MCP client's tool timeout to " +
+        "be raised (Codex: tool_timeout_sec in [mcp_servers.factorio]; Claude Code: " +
+        "MCP_TOOL_TIMEOUT env, ms).",
       inputSchema: z.object({
         timeout_s: z
           .number()
           .int()
           .min(1)
-          .max(600)
+          .max(21600)
           .optional()
-          .describe("seconds to wait, default 30; use 600 for continuous listening (see tool description)"),
+          .describe("seconds to wait, default 30; use 21600 (6h) to stay parked and always reachable"),
       }),
     },
     async ({ timeout_s }) => {
@@ -263,7 +264,7 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         }
         return toResult(
           `Nothing happened in the last ${timeout}s. The player expects you to stay online: ` +
-            "call wait_for_chat again RIGHT NOW (timeout_s 600) — do not end your turn and do " +
+            "call wait_for_chat again RIGHT NOW (timeout_s 21600) — do not end your turn and do " +
             "not write any text first.",
         );
       } catch (e) {
@@ -292,8 +293,8 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
             type: "text" as const,
             text:
               "Gioca a Factorio con me. Segui le instructions del server MCP factorio: " +
-              "connect_status, saluto in chat via say (in italiano), poi loop di wait_for_chat " +
-              "con timeout_s 600 senza scrivere nulla tra un'attesa vuota e l'altra. " +
+              "connect_status, saluto in chat via say (in italiano), poi parcheggiati in wait_for_chat " +
+              "con timeout_s 21600 (6 ore: non costa nulla da fermo e ti sveglia all'istante) senza scrivere nulla tra un'attesa vuota e l'altra. " +
               "I subagent sono i COMPANION nel gioco (respawn {name:...}, parametro companion, " +
               "max 4) — mai agent nativi del client, mai shell o RCON diretto. Parallelizza di " +
               "default con background:true e reagisci agli [event]. Passi dipendenti sullo " +
