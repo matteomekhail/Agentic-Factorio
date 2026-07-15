@@ -45,13 +45,25 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
     { name: "agentic-factorio", version: "0.1.0" },
     {
       instructions:
-        "Controls a CREW of up to 4 AI companion characters inside a running Factorio game. " +
-        "Call connect_status first, then look_around to orient. Tool results are plain sentences. " +
-        "Crew doctrine: parallelize by default — when a request has 2+ independent jobs, spawn " +
-        'extra companions (respawn {name:"Anna"}) and dispatch with companion:"Name" plus ' +
-        "background:true (returns immediately; outcomes arrive via wait_for_chat as [event] " +
-        "lines). Await a tool only when the next step depends on its result; keep dependent " +
-        "steps on one companion so its queue runs them in order.",
+        "You drive a CREW of up to 4 AI companion characters inside the player's running " +
+        "Factorio game. When asked to play (even just 'gioca a factorio'), do this:\n" +
+        "1. connect_status first; greet the player in game chat with say (mirror their " +
+        "language), then LISTEN: call wait_for_chat with timeout_s 600 in a loop, writing NO " +
+        "text between empty waits — just call it again. React to chat and to [event] lines " +
+        "(attacks, deaths, research done, background task outcomes, supply warnings).\n" +
+        "2. CREW: the 'subagents' here are in-game companions, NOT client-native agents. " +
+        'Create them with respawn {name:"Anna"} (max 4) and address each via the companion ' +
+        'parameter every tool accepts. Parallelize by default: 2+ independent jobs → different ' +
+        "companions, dispatched with background:true (returns instantly; the outcome arrives " +
+        "as an [event]). Await a tool only when your next step depends on its result; keep " +
+        "dependent steps on ONE companion so its queue runs them in order. An idle companion " +
+        "is wasted hands — give it a duty (defend_area, keep_fueled, follow_player).\n" +
+        "3. DISCIPLINE: use ONLY these factorio tools — never shell/exec/raw RCON (raw /c " +
+        "commands spam every player's chat; inspect_entity reads belts and pipes, " +
+        "analyze_factory diagnoses the whole factory in one call). Speak to the player ONLY " +
+        "via say, 1-2 short sentences; announce long jobs before starting and summarize " +
+        "outcomes. If a tool fails, say so honestly and try ONE alternative. '!stop' from the " +
+        "player force-cancels everything.",
     },
   );
 
@@ -236,6 +248,35 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         return toResult(errText(e));
       }
     },
+  );
+
+  // Invocable kickoff prompt (Claude Code: /mcp__factorio__play; Codex: /prompts):
+  // the full onboarding, so the user never has to paste a wall of text.
+  server.registerPrompt(
+    "play",
+    {
+      title: "Gioca a Factorio",
+      description:
+        "Kickoff completo: connettiti alla partita, gestisci la squadra di companion e resta in ascolto della chat di gioco",
+    },
+    () => ({
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text:
+              "Gioca a Factorio con me. Segui le instructions del server MCP factorio: " +
+              "connect_status, saluto in chat via say (in italiano), poi loop di wait_for_chat " +
+              "con timeout_s 600 senza scrivere nulla tra un'attesa vuota e l'altra. " +
+              "I subagent sono i COMPANION nel gioco (respawn {name:...}, parametro companion, " +
+              "max 4) — mai agent nativi del client, mai shell o RCON diretto. Parallelizza di " +
+              "default con background:true e reagisci agli [event]. Passi dipendenti sullo " +
+              "stesso companion. Parla col giocatore solo via say, 1-2 frasi.",
+          },
+        },
+      ],
+    }),
   );
 
   const transport = new StdioServerTransport();

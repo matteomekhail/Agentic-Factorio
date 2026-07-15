@@ -440,6 +440,37 @@ export function toolSpecs(): ToolSpec[] {
     ),
 
     spec(
+      "check_inventory",
+      'Quick inventory peek, much lighter than look_around: your own by default, another companion\'s via companion:"Anna", or A PLAYER\'s via player:"name" — use the player option to see what the player already carries before crafting or delivering for them.',
+      z.object({
+        player: z
+          .string()
+          .optional()
+          .describe("player name — read THEIR inventory instead of a companion's"),
+      }),
+      async (bridge, { player }) => {
+        const res = await bridge.call<{
+          owner: string;
+          inventory: Record<string, number> | Record<string, never>;
+          equipment?: EquipResult;
+        }>("check_inventory", { player });
+        const inv = Object.entries(res.inventory ?? {});
+        const parts = [
+          `${res.owner}: ${inv.length > 0 ? inv.map(([n, q]) => `${n} x${q}`).join(", ") : "empty inventory"}.`,
+        ];
+        if (res.equipment) {
+          const ammo = Object.entries(res.equipment.ammo ?? {});
+          parts.push(
+            `Equipped — gun: ${res.equipment.gun ?? "none"}; ammo: ${
+              ammo.length > 0 ? ammo.map(([n, q]) => `${n} x${q}`).join(", ") : "none"
+            }; armor: ${res.equipment.armor ?? "none"}.`,
+          );
+        }
+        return parts.join(" ");
+      },
+    ),
+
+    spec(
       "inspect_entity",
       "Inspect ONE entity near a map position (searched within 1.5 tiles): type, status, recipe, crafting progress, inventory contents, items sitting ON a belt (transport lines), and fluids inside pipes/tanks/machines (or that the fluid system is dry). Use it to check machines, chests, belts and pipes — never run raw console commands for this. Returns a plain-text report.",
       z.object({ x: z.number(), y: z.number() }),
