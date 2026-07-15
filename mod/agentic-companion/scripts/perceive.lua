@@ -237,6 +237,29 @@ function M.power_summary(surface, force, origin, radius, structures)
   return collect_power(surface, force, origin, radius, structures)
 end
 
+-- Lightweight inventory peek: the addressed companion (default) or a player.
+function M.check_inventory(params)
+  if type(params.player) == "string" and params.player ~= "" then
+    local p = game.get_player(params.player)
+    if not (p and p.connected) then
+      error("player " .. params.player .. " isn't online")
+    end
+    if not (p.character and p.character.valid) then
+      error(params.player .. " has no body right now")
+    end
+    return {
+      owner = "player " .. params.player,
+      inventory = inventory_map(p.character.get_main_inventory()),
+    }
+  end
+  local c = companion.require_companion()
+  return {
+    owner = "companion " .. companion.context(),
+    inventory = inventory_map(c.get_main_inventory()),
+    equipment = equipment.summary(c),
+  }
+end
+
 function M.get_state(params)
   local radius = math.max(1, math.min(tonumber(params.radius) or DEFAULT_RADIUS, MAX_RADIUS))
   local c = companion.get()

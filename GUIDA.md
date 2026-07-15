@@ -128,6 +128,11 @@ Poi apri una sessione di Claude Code e scrivi qualcosa tipo:
 ### 5b. Codex (abbonamento ChatGPT)
 
 1. Fai login una volta: lancia `codex` e scegli **Sign in with ChatGPT**.
+
+> **Kickoff facile**: le regole di gioco (squadra, ascolto chat, disciplina) sono
+> incorporate nelle instructions del server MCP — basta scrivere *"gioca a factorio"*.
+> In più il server espone il prompt pronto `play` (in Claude Code:
+> `/mcp__factorio__play`).
 2. Registra il server MCP:
 
    ```sh
