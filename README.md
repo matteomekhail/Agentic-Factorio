@@ -90,6 +90,11 @@ keep_fueled (tops up burners in an area) and defend_area (fights intruders,
 refills turrets, repairs structures) · train management (fleet overview,
 schedules, dispatch).
 
+New in M8: a crew — up to 4 named companions with per-companion task queues
+working in parallel, all driven by ONE brain (tools take companion:"Name") ·
+push events: the brain is woken when a companion is attacked or dies, research
+completes, or a duty runs out of supplies — no polling, no asking.
+
 It also builds free-form layouts from a plain description — spatial tools (ASCII
 area scan, exact machine footprints, placement dry-runs, batched build plans) let
 the model compute the coordinates itself · imports blueprint strings and builds

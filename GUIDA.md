@@ -210,6 +210,8 @@ Scrivi in chat frasi normali — non servono comandi. Esempi che funzionano:
 | Fare il guardiano | «difendi questa zona» (spara agli intrusi, ricarica le torrette, ripara i danni) |
 | Fare il fuochista | «tieni riforniti i forni qui intorno» (pattuglia e ricarica il carbone) |
 | Gestire i treni | «manda il treno 2 alla Stazione Ferro e fallo aspettare finché è pieno» |
+| Squadra (fino a 4 companion) | «crea un companion di nome Anna» · «Anna mina il ferro mentre Bruno costruisce» — lavorano in parallelo, ognuno col suo colore ed etichetta |
+| Reagire agli eventi | ti avvisa da solo se viene attaccato, muore, finisce una ricerca o una scorta — senza che tu chieda nulla |
 | Combattere | «equipaggiati e ripulisci i nidi a nord» (si ritira da solo se ferito) |
 | Avviare ricerche | «avvia la ricerca della logistica» |
 | Respawn | «torna in vita» (se è morto) |
@@ -244,7 +246,8 @@ calcola lui; più la richiesta è specifica, meglio esegue.
 | `--brain codex` (flag di `play`) | Cervello = il tuo abbonamento ChatGPT via `codex exec`: la app ascolta la chat e sveglia Codex solo quando scrivi — niente polling |
 
 I "turni di servizio" (`seguimi`, `difendi la zona`, `tieni riforniti i forni`) durano
-finché non dici `!stop` o gli dai un altro compito.
+finché non dici `!stop` o gli dai un altro compito. Con più companion, `!stop` ferma
+TUTTI; per fermarne uno solo: «Anna, fermati».
 
 ## 8. Risoluzione problemi
 
