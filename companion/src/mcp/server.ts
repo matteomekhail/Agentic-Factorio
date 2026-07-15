@@ -73,6 +73,14 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
   let lastChatId = 0;
   let lastEventId = 0;
 
+  // Listening watchdog: when the model isn't inside a wait_for_chat and the
+  // player speaks anyway, tell them in game chat instead of leaving silence.
+  let activeWaits = 0;
+  let everListened = false;
+  let lastListenEnd = 0;
+  let watchdogChatId: number | null = null;
+  let warnedIdle = false;
+
   function closeConn(): void {
     conn?.rcon.close();
     conn = null;
@@ -216,6 +224,10 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
     },
     async ({ timeout_s }) => {
       const timeout = timeout_s ?? 30;
+      activeWaits++;
+      everListened = true;
+      warnedIdle = false;
+      watchdogChatId = null; // re-sync the watchdog cursor after this wait
       try {
         const bridge = await getBridge();
         if (lastChatId === 0) {
@@ -241,11 +253,18 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
             lines.push(events.map((e) => `[event] ${e.text}`).join("\n"));
           }
           if (lines.length > 0) return toResult(lines.join("\n"));
-          await sleep(1000);
+          await sleep(500);
         }
-        return toResult(`Nothing happened in the last ${timeout}s (no chat, no events).`);
+        return toResult(
+          `Nothing happened in the last ${timeout}s. The player expects you to stay online: ` +
+            "call wait_for_chat again RIGHT NOW (timeout_s 600) — do not end your turn and do " +
+            "not write any text first.",
+        );
       } catch (e) {
         return toResult(errText(e));
+      } finally {
+        activeWaits--;
+        lastListenEnd = Date.now();
       }
     },
   );
@@ -279,6 +298,36 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
     }),
   );
 
+  // The TUI model can't be woken from outside (MCP is pull-only): when the
+  // player speaks while nobody is listening, at least tell them in game chat.
+  const watchdog = setInterval(() => {
+    void (async () => {
+      if (!everListened || activeWaits > 0) return;
+      if (Date.now() - lastListenEnd < 15_000) return; // grace between waits
+      if (!conn?.rcon.connected) return; // never dial the game just to check
+      try {
+        const bridge = conn.bridge;
+        if (watchdogChatId === null) watchdogChatId = lastChatId;
+        const res = await bridge.call<GetChatResult>("get_chat", { since_id: watchdogChatId });
+        watchdogChatId = Math.max(watchdogChatId, res.last_id);
+        const messages = asArray(res.messages).filter((m) => !m.text.startsWith("!"));
+        if (messages.length > 0 && !warnedIdle) {
+          warnedIdle = true;
+          await bridge.call("say", {
+            text:
+              "Il mio cervello non sta ascoltando in questo momento — leggerò i tuoi messaggi appena riprende. " +
+              "(Per la modalità sempre-sveglia: play --brain codex)",
+          });
+          console.error(
+            "[agentic-factorio] player spoke while the model wasn't listening — warned them in game chat",
+          );
+        }
+      } catch {
+        // game unreachable or mid-reconnect: stay quiet
+      }
+    })();
+  }, 10_000);
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
@@ -289,6 +338,7 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
   await new Promise<void>((resolve) => {
     server.server.onclose = () => resolve();
   });
+  clearInterval(watchdog);
   closeConn();
   console.error("[agentic-factorio] MCP client disconnected, shutting down");
 }
