@@ -1,15 +1,25 @@
-// Polls the mod's chat ring buffer and emits typed events.
+// Polls the mod's chat ring buffer AND the push-event buffer, emitting typed
+// events. Both backlogs are skipped on the first poll so only genuinely new
+// activity wakes the brain.
 import { EventEmitter } from "node:events";
 import { Bridge } from "./bridge.js";
-import { asArray, type ChatMessage, type GetChatResult } from "./types.js";
+import {
+  asArray,
+  type ChatMessage,
+  type GameEvent,
+  type GetChatResult,
+  type GetEventsResult,
+} from "./types.js";
 
 export interface ChatPollerEvents {
   chat: [ChatMessage];
+  gameEvent: [GameEvent];
   error: [Error];
 }
 
 export class ChatPoller extends EventEmitter<ChatPollerEvents> {
-  private lastId: number | null = null; // null until the backlog is skipped
+  private lastId: number | null = null;
+  private lastEventId: number | null = null;
   private timer: NodeJS.Timeout | null = null;
   private polling = false;
 
@@ -39,13 +49,24 @@ export class ChatPoller extends EventEmitter<ChatPollerEvents> {
         since_id: this.lastId ?? 0,
       });
       if (this.lastId === null) {
-        // First poll: skip anything said before the companion started.
-        this.lastId = res.last_id;
-        return;
+        this.lastId = res.last_id; // skip pre-existing backlog
+      } else {
+        for (const msg of asArray(res.messages)) {
+          this.lastId = Math.max(this.lastId, msg.id);
+          this.emit("chat", msg);
+        }
       }
-      for (const msg of asArray(res.messages)) {
-        this.lastId = Math.max(this.lastId, msg.id);
-        this.emit("chat", msg);
+
+      const ev = await this.bridge.call<GetEventsResult>("get_events", {
+        since_id: this.lastEventId ?? 0,
+      });
+      if (this.lastEventId === null) {
+        this.lastEventId = ev.last_id;
+      } else {
+        for (const event of asArray(ev.events)) {
+          this.lastEventId = Math.max(this.lastEventId, event.id);
+          this.emit("gameEvent", event);
+        }
       }
     } catch (err) {
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
