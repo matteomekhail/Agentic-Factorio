@@ -4,6 +4,7 @@
 local companion = require("scripts.companion")
 local approach = require("scripts.actions.approach")
 local chat = require("scripts.chat")
+local events = require("scripts.events")
 
 local M = {}
 
@@ -97,7 +98,9 @@ function M.tick(task)
     if not fuel then
       if not rf.warned_empty then
         rf.warned_empty = true
-        pcall(chat.say, { text = "I'm out of fuel to hand out — bring me coal (or tell me to mine some) and I'll keep going." })
+        local text = "I'm out of fuel to hand out — bring me coal (or tell me to mine some) and I'll keep going."
+        pcall(chat.say, { text = text })
+        pcall(events.push, "supply_warning", text)
       end
       rf.target = nil
       return nil

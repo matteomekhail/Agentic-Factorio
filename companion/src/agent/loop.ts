@@ -57,6 +57,13 @@ export class AgentLoop {
     void this.drain();
   }
 
+  /** Push events from the game (attacked, died, research done, supply warnings). */
+  onEvent(event: { tick: number; text: string }): void {
+    log.info(`game event: ${event.text}`);
+    this.inbox.push({ id: 0, tick: event.tick, player: "[event]", text: event.text });
+    void this.drain();
+  }
+
   /** Every `minutes`, nudge the agent to look around and report only if
    *  something needs attention. Skipped while a wake is already running. */
   startProactive(minutes: number): void {

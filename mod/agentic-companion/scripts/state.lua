@@ -10,6 +10,8 @@ function M.init()
   storage.path_requests = storage.path_requests or {}
   -- chunked RPC responses: { next_id, by_id = { [id] = { parts = {...}, created_tick } } }
   storage.rpc_outbox = storage.rpc_outbox or { next_id = 1, by_id = {} }
+  -- push events for the brain (see scripts/events.lua): ring buffer like chat
+  storage.events = storage.events or { list = {}, next_id = 1 }
 end
 
 return M

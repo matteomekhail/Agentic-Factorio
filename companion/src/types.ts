@@ -25,6 +25,19 @@ export interface ChatMessage {
   text: string;
 }
 
+export interface GameEvent {
+  id: number;
+  tick: number;
+  kind: string;
+  text: string;
+  companion?: string;
+}
+
+export interface GetEventsResult {
+  events: GameEvent[] | Record<string, never>;
+  last_id: number;
+}
+
 export interface GetChatResult {
   messages: ChatMessage[] | Record<string, never>;
   last_id: number;

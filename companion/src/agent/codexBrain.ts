@@ -3,6 +3,9 @@
 // the user's ChatGPT subscription pays, and nobody polls: the ChatPoller wakes
 // this brain only when a player actually says something.
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Bridge } from "../bridge.js";
 import { log } from "../log.js";
 import type { ChatMessage } from "../types.js";
@@ -16,12 +19,19 @@ Regole, in ordine di importanza:
 3. Conferma con say prima dei task lunghi, e riassumi con say quando hai finito o se qualcosa fallisce.
 4. Usa solo i tool factorio: niente shell, niente file, niente altro.
 5. Se la richiesta è ambigua, chiedi chiarimenti via say e termina il turno.
+6. I messaggi da "[event]" non sono il giocatore: sono avvisi dal gioco (attacchi, morte, ricerca finita, scorte esaurite). Reagisci con buon senso e, se serve informare, usa say — breve.
 
 Messaggi dal gioco:`;
 
 export interface CodexBrainOptions {
   cwd?: string;
   model?: string;
+  /** Persist the Codex conversation id under this key so restarts keep memory. */
+  sessionKey?: string;
+}
+
+function sessionFile(key: string): string {
+  return path.join(os.homedir(), ".config", "agentic-factorio", "sessions", `codex-${key}.json`);
 }
 
 export class CodexBrain {
@@ -34,7 +44,41 @@ export class CodexBrain {
   constructor(
     private readonly bridge: Bridge,
     private readonly opts: CodexBrainOptions = {},
-  ) {}
+  ) {
+    if (opts.sessionKey) {
+      try {
+        const data = JSON.parse(readFileSync(sessionFile(opts.sessionKey), "utf8"));
+        if (typeof data.sessionId === "string" && data.sessionId.length >= 8) {
+          this.sessionId = data.sessionId;
+          log.info(`resuming saved codex session ${this.sessionId}`);
+        }
+      } catch {
+        // no saved session — start fresh
+      }
+    }
+  }
+
+  private persistSession(): void {
+    if (!this.opts.sessionKey) return;
+    const file = sessionFile(this.opts.sessionKey);
+    try {
+      if (this.sessionId) {
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, JSON.stringify({ sessionId: this.sessionId }));
+      } else {
+        rmSync(file, { force: true });
+      }
+    } catch (err) {
+      log.warn(`couldn't persist codex session: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /** Push events from the game (attacked, died, research done, supply warnings). */
+  onEvent(event: { tick: number; text: string }): void {
+    log.info(`game event: ${event.text}`);
+    this.inbox.push({ id: 0, tick: event.tick, player: "[event]", text: event.text });
+    void this.drain();
+  }
 
   onChat(msg: ChatMessage): void {
     log.chat(msg.player, msg.text);
@@ -76,19 +120,20 @@ export class CodexBrain {
     }
   }
 
-  private async runTurn(batch: ChatMessage[]): Promise<void> {
+  private async runTurn(batch: ChatMessage[], isRetry = false): Promise<void> {
     const chatLines = batch.map((m) => `<${m.player}> ${m.text}`).join("\n");
     const prompt = this.sessionId
       ? `Nuovi messaggi dal gioco:\n${chatLines}`
       : `${FIRST_TURN_INSTRUCTIONS}\n${chatLines}`;
 
+    const wasResume = this.sessionId !== null;
     const args = this.sessionId
       ? ["exec", "resume", this.sessionId, "--json", prompt]
       : ["exec", "--json", prompt];
     if (this.opts.model) args.splice(1, 0, "-m", this.opts.model);
 
-    log.info(`codex turn starting (${this.sessionId ? "resume" : "new session"})`);
-    await new Promise<void>((resolve) => {
+    log.info(`codex turn starting (${wasResume ? "resume" : "new session"})`);
+    const exitCode = await new Promise<number | null>((resolve) => {
       const proc = spawn("codex", args, {
         cwd: this.opts.cwd ?? process.cwd(),
         stdio: ["ignore", "pipe", "pipe"],
@@ -116,23 +161,32 @@ export class CodexBrain {
       proc.on("close", (code) => {
         clearTimeout(timer);
         this.proc = null;
-        if (code !== 0 && !this.disposed) {
-          log.warn(`codex exited with code ${code}`);
-          void this.bridge
-            .call("say", { text: "Ho avuto un problema con il mio cervello (Codex) — riprova tra poco." })
-            .catch(() => {});
-        } else {
-          log.info("codex turn finished");
-        }
-        resolve();
+        resolve(code);
       });
       proc.on("error", (err) => {
         clearTimeout(timer);
         this.proc = null;
         log.error(`cannot launch codex: ${err.message} — is Codex CLI installed and signed in?`);
-        resolve();
+        resolve(null);
       });
     });
+
+    if (exitCode === 0 || this.disposed || exitCode === null) {
+      if (exitCode === 0) log.info("codex turn finished");
+      return;
+    }
+    if (wasResume && !isRetry) {
+      // Saved conversation likely expired/rotated: drop it and replay fresh.
+      log.warn(`codex resume failed (exit ${exitCode}) — starting a fresh session`);
+      this.sessionId = null;
+      this.persistSession();
+      await this.runTurn(batch, true);
+      return;
+    }
+    log.warn(`codex exited with code ${exitCode}`);
+    void this.bridge
+      .call("say", { text: "Ho avuto un problema con il mio cervello (Codex) — riprova tra poco." })
+      .catch(() => {});
   }
 
   private handleEventLine(line: string): void {
@@ -147,6 +201,7 @@ export class CodexBrain {
         event.thread_id ?? event.session_id ?? event.thread?.id ?? event.session?.id ?? null;
       if (typeof id === "string" && id.length >= 8) {
         this.sessionId = id;
+        this.persistSession();
         log.info(`codex session ${id}`);
       }
     }

@@ -6,6 +6,7 @@ local equipment = require("scripts.equipment")
 local approach = require("scripts.actions.approach")
 local walk = require("scripts.actions.walk")
 local chat = require("scripts.chat")
+local events = require("scripts.events")
 
 local M = {}
 
@@ -69,6 +70,7 @@ local function say_once(def, key, text)
   if not def[key] then
     def[key] = true
     pcall(chat.say, { text = text })
+    pcall(events.push, "supply_warning", text)
   end
 end
 

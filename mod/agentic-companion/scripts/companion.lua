@@ -124,6 +124,7 @@ function M.spawn(params)
   if not ent then error("failed to create companion character") end
   ent.color = COMPANION_COLOR
   storage.companion.entity = ent
+  storage.companion.unit_number = ent.unit_number
   attach_label(ent)
   M.update_map_tag()
 

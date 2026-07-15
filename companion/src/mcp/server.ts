@@ -12,6 +12,7 @@ import {
   asArray,
   type ChatMessage,
   type GetChatResult,
+  type GetEventsResult,
   type GetStateResult,
   type PingResult,
   type SpawnResult,
@@ -54,6 +55,7 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
   // so the MCP server starts fine before Factorio does.
   let conn: { rcon: RconClient; bridge: Bridge } | null = null;
   let lastChatId = 0;
+  let lastEventId = 0;
 
   function closeConn(): void {
     conn?.rcon.close();
@@ -179,10 +181,11 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
     "wait_for_chat",
     {
       description:
-        "Wait for the next player chat message, polling the game about once per second. Returns " +
-        "as soon as someone says something new, or reports that nothing was said once timeout_s " +
-        "elapses. To listen continuously: call this in a loop with a LONG timeout (600) and do " +
-        "not write any text between calls when nothing was said — just call it again. " +
+        "Wait for the next player chat message OR game event (companion attacked/died, research " +
+        "finished, duty supply warnings), polling about once per second. Returns as soon as " +
+        "something new happens, or reports silence once timeout_s elapses. To listen " +
+        "continuously: call this in a loop with a LONG timeout (600) and do not write any text " +
+        "between calls when nothing happened — just call it again. " +
         "NOTE: timeouts above ~55s require raising the MCP client's tool timeout (Codex: " +
         "tool_timeout_sec in [mcp_servers.factorio]; Claude Code: MCP_TOOL_TIMEOUT env, ms).",
       inputSchema: z.object({
@@ -200,21 +203,31 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
       try {
         const bridge = await getBridge();
         if (lastChatId === 0) {
-          // Never read before: skip the backlog so we only wake on genuinely new chat.
+          // Never read before: skip the backlogs so we only wake on genuinely new activity.
           const cur = await bridge.call<GetChatResult>("get_chat", { since_id: 0 });
           lastChatId = cur.last_id;
+          const ev = await bridge.call<GetEventsResult>("get_events", { since_id: 0 });
+          lastEventId = ev.last_id;
         }
         const deadline = Date.now() + timeout * 1000;
         while (Date.now() < deadline) {
+          const lines: string[] = [];
           const res = await bridge.call<GetChatResult>("get_chat", { since_id: lastChatId });
           const messages = asArray(res.messages);
           if (messages.length > 0) {
             lastChatId = Math.max(lastChatId, res.last_id);
-            return toResult(formatChatLines(messages));
+            lines.push(formatChatLines(messages));
           }
+          const ev = await bridge.call<GetEventsResult>("get_events", { since_id: lastEventId });
+          const events = asArray(ev.events);
+          if (events.length > 0) {
+            lastEventId = Math.max(lastEventId, ev.last_id);
+            lines.push(events.map((e) => `[event] ${e.text}`).join("\n"));
+          }
+          if (lines.length > 0) return toResult(lines.join("\n"));
           await sleep(1000);
         }
-        return toResult(`No chat messages in the last ${timeout}s.`);
+        return toResult(`Nothing happened in the last ${timeout}s (no chat, no events).`);
       } catch (e) {
         return toResult(errText(e));
       }

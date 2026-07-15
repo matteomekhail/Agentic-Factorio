@@ -110,9 +110,16 @@ async function play(settings: Settings, fresh: boolean, brainKind: string): Prom
     `${spawned.already_existed ? "companion found" : "companion spawned"} at (${spawned.position.x}, ${spawned.position.y})`,
   );
 
-  let loop: { onChat(msg: import("./types.js").ChatMessage): void; dispose(): void };
+  let loop: {
+    onChat(msg: import("./types.js").ChatMessage): void;
+    onEvent(event: { tick: number; text: string }): void;
+    dispose(): void;
+  };
   if (brainKind === "codex") {
-    loop = new CodexBrain(bridge, { model: settings.model });
+    loop = new CodexBrain(bridge, {
+      model: settings.model,
+      sessionKey: fresh ? undefined : `${settings.rcon.host}-${settings.rcon.port}`,
+    });
   } else {
     const tools = buildTools(bridge, { onTool: (name, detail) => log.tool(name, detail) });
     const agentLoop = new AgentLoop(bridge, apiModel!.model as never, tools, {
@@ -130,6 +137,10 @@ async function play(settings: Settings, fresh: boolean, brainKind: string): Prom
   poller.on("chat", (msg) => {
     pollErrorLogged = false;
     loop.onChat(msg);
+  });
+  poller.on("gameEvent", (event) => {
+    pollErrorLogged = false;
+    loop.onEvent(event);
   });
   poller.on("error", (err) => {
     if (!pollErrorLogged) {
