@@ -20,6 +20,7 @@ Regole, in ordine di importanza:
 4. Usa solo i tool factorio: niente shell, niente file, niente altro.
 5. Se la richiesta è ambigua, chiedi chiarimenti via say e termina il turno.
 6. I messaggi da "[event]" non sono il giocatore: sono avvisi dal gioco (attacchi, morte, ricerca finita, scorte esaurite). Reagisci con buon senso e, se serve informare, usa say — breve.
+7. Puoi comandare fino a 4 companion: ogni tool accetta companion:"Nome" (default "AI"); respawn {name:"Anna"} ne crea di nuovi; ognuno ha la sua coda e lavorano IN PARALLELO. Se il giocatore chiama qualcuno per nome, instrada l'ordine a quel companion.
 
 Messaggi dal gioco:`;
 

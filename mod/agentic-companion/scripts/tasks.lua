@@ -38,6 +38,18 @@ local runners = {
   fight = fight,
 }
 
+-- One lane (queue + active) per companion; tasks in different lanes run in
+-- the same tick, so companions genuinely work in parallel.
+local function lane(name)
+  local lanes = storage.tasks.by_companion
+  local l = lanes[name]
+  if not l then
+    l = { queue = {}, active = nil }
+    lanes[name] = l
+  end
+  return l
+end
+
 local function stop_body()
   local c = companion.get()
   if c then
@@ -49,16 +61,34 @@ local function stop_body()
   end
 end
 
+-- finish() runs with the companion context already set to the task's owner.
 local function finish(task, status, detail)
   storage.tasks.records[task.id] = {
     status = status,
     detail = detail or "",
     finished_tick = game.tick,
   }
-  if storage.tasks.active and storage.tasks.active.id == task.id then
-    storage.tasks.active = nil
+  local l = lane(task.companion or companion.DEFAULT)
+  if l.active and l.active.id == task.id then
+    l.active = nil
   end
   stop_body()
+end
+
+local function cancel_lane(name)
+  local l = lane(name)
+  local n = 0
+  for _, q in ipairs(l.queue) do
+    storage.tasks.records[q.id] = { status = "cancelled", detail = "", finished_tick = game.tick }
+    n = n + 1
+  end
+  l.queue = {}
+  if l.active then
+    companion.set_context(name)
+    finish(l.active, "cancelled", "")
+    n = n + 1
+  end
+  return n
 end
 
 function M.enqueue(params)
@@ -66,70 +96,83 @@ function M.enqueue(params)
   if type(task) ~= "table" or not runners[task.type] then
     error("unknown task type: " .. tostring(type(task) == "table" and task.type or task))
   end
+  local name = companion.context()
+  companion.require_companion(name)
   if params.replace then
-    M.cancel({ all = true })
+    cancel_lane(name)
+    companion.set_context(name)
   end
   local t = storage.tasks
   task.id = t.next_id
   t.next_id = t.next_id + 1
   task.status = "queued"
-  t.queue[#t.queue + 1] = task
-  return { task_id = task.id }
+  task.companion = name
+  local l = lane(name)
+  l.queue[#l.queue + 1] = task
+  return { task_id = task.id, companion = name }
 end
 
 function M.get(params)
   local id = tonumber(params.task_id)
   if not id then error("get_task requires task_id") end
-  local t = storage.tasks
-  if t.active and t.active.id == id then
-    return { status = "running", detail = "" }
+  for _, l in pairs(storage.tasks.by_companion) do
+    if l.active and l.active.id == id then
+      return { status = "running", detail = "" }
+    end
+    for _, q in ipairs(l.queue) do
+      if q.id == id then return { status = "queued", detail = "" } end
+    end
   end
-  for _, q in ipairs(t.queue) do
-    if q.id == id then return { status = "queued", detail = "" } end
-  end
-  local rec = t.records[id]
+  local rec = storage.tasks.records[id]
   if rec then return { status = rec.status, detail = rec.detail } end
   error("unknown task_id: " .. id)
 end
 
 function M.cancel(params)
-  local t = storage.tasks
   local n = 0
   if params.all then
-    for _, q in ipairs(t.queue) do
-      t.records[q.id] = { status = "cancelled", detail = "", finished_tick = game.tick }
-      n = n + 1
-    end
-    t.queue = {}
-    if t.active then
-      finish(t.active, "cancelled", "")
-      n = n + 1
+    -- cancel {all=true, companion="X"} clears X's lane; without an explicit
+    -- companion it clears EVERY lane (the !stop kill switch).
+    if type(params.companion) == "string" and params.companion ~= "" then
+      n = cancel_lane(params.companion)
+    else
+      for name in pairs(storage.tasks.by_companion) do
+        n = n + cancel_lane(name)
+      end
     end
   else
     local id = tonumber(params.task_id)
     if not id then error("cancel requires task_id or all=true") end
-    if t.active and t.active.id == id then
-      finish(t.active, "cancelled", "")
-      n = 1
-    else
-      for i, q in ipairs(t.queue) do
+    for name, l in pairs(storage.tasks.by_companion) do
+      if l.active and l.active.id == id then
+        companion.set_context(name)
+        finish(l.active, "cancelled", "")
+        n = 1
+        break
+      end
+      for i, q in ipairs(l.queue) do
         if q.id == id then
-          table.remove(t.queue, i)
-          t.records[id] = { status = "cancelled", detail = "", finished_tick = game.tick }
+          table.remove(l.queue, i)
+          storage.tasks.records[id] = { status = "cancelled", detail = "", finished_tick = game.tick }
           n = 1
           break
         end
       end
+      if n > 0 then break end
     end
   end
   return { cancelled = n }
 end
 
--- Serializable summary of the active task for get_state.
-function M.active_summary()
-  local a = storage.tasks.active
+-- Serializable summary of a companion's active task for get_state.
+function M.active_summary(name)
+  local a = lane(name or companion.context()).active
   if not a then return nil end
   return { id = a.id, type = a.type, status = "running" }
+end
+
+function M.queue_length(name)
+  return #lane(name or companion.context()).queue
 end
 
 local function prune_records()
@@ -141,18 +184,13 @@ local function prune_records()
   end
 end
 
-function M.on_tick()
-  if game.tick % PRUNE_INTERVAL_TICKS == 0 then
-    prune_records()
-  end
-
-  local t = storage.tasks
-  local task = t.active
+local function step_lane(name, l)
+  local task = l.active
   if not task then
-    if #t.queue == 0 then return end
-    task = table.remove(t.queue, 1)
+    if #l.queue == 0 then return end
+    task = table.remove(l.queue, 1)
     task.status = "running"
-    t.active = task
+    l.active = task
     local ok, err = pcall(runners[task.type].start, task)
     if not ok then
       finish(task, "failed", tostring(err))
@@ -166,6 +204,19 @@ function M.on_tick()
   elseif result then
     finish(task, result.status, result.detail)
   end
+end
+
+function M.on_tick()
+  if game.tick % PRUNE_INTERVAL_TICKS == 0 then
+    prune_records()
+  end
+  for name, l in pairs(storage.tasks.by_companion) do
+    if l.active or #l.queue > 0 then
+      companion.set_context(name)
+      step_lane(name, l)
+    end
+  end
+  companion.set_context(nil)
 end
 
 return M

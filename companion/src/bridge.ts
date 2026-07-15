@@ -59,6 +59,17 @@ export class Bridge {
     return envelope.data as T;
   }
 
+  /** A view of this bridge that acts as the named companion: every call gets
+   *  `companion` merged into its params (the mod routes on it). Prototype
+   *  chain keeps enqueueAndWait/unlock working through the overridden call. */
+  scoped(companion: string): Bridge {
+    const parent = this;
+    const child = Object.create(parent) as Bridge;
+    child.call = <T>(method: string, params?: unknown): Promise<T> =>
+      parent.call<T>(method, { ...((params as Record<string, unknown>) ?? {}), companion });
+    return child;
+  }
+
   /** Factorio requires the first Lua command of a session to be repeated as an
    *  "this disables achievements" confirmation, and returns nothing until then.
    *  Send a harmless ping up to twice to get past it. Call once after connect. */

@@ -32,19 +32,10 @@ async function main(): Promise<void> {
   // ---------- arena reset ----------
   await bridge.call("cancel", { all: true }).catch(() => {});
   await lua(`local s = game.surfaces[1]
-    for _, e in pairs(s.find_entities_filtered{force = "player"}) do
-      if e.type ~= "character" then e.destroy() end
-    end
+    for _, e in pairs(s.find_entities_filtered{force = "player"}) do e.destroy() end
     for _, e in pairs(s.find_entities_filtered{force = "enemy"}) do e.destroy() end
     for _, name in pairs({"iron-ore", "copper-ore"}) do
       for _, e in pairs(s.find_entities_filtered{name = name}) do e.destroy() end
-    end
-    local c = ${findChar}
-    if c then
-      c.get_main_inventory().clear()
-      c.get_inventory(defines.inventory.character_guns).clear()
-      c.get_inventory(defines.inventory.character_ammo).clear()
-      c.health = 250
     end
     rcon.print("arena reset")`);
   const spawn = await bridge.call<SpawnResult>("spawn_companion", {});

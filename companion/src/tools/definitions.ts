@@ -62,7 +62,7 @@ export function formatState(state: GetStateResult): string {
   if (state.companion) {
     const c = state.companion;
     lines.push(
-      `You are at (${c.position.x}, ${c.position.y}), health ${c.health}${c.vehicle ? `, driving a ${c.vehicle}` : ""}.`,
+      `You are ${c.name ?? "AI"} at (${c.position.x}, ${c.position.y}), health ${c.health}${c.vehicle ? `, driving a ${c.vehicle}` : ""}.`,
     );
     const inv = Object.entries(c.inventory ?? {});
     lines.push(
@@ -87,6 +87,21 @@ export function formatState(state: GetStateResult): string {
     }
   } else {
     lines.push("You have no body yet (companion character missing — use respawn).");
+  }
+
+  const crew = asArray(state.other_companions);
+  if (crew.length > 0) {
+    lines.push(
+      "Your crew: " +
+        crew
+          .map((m) => {
+            if (m.dead) return `${m.name} is DEAD (respawn with name "${m.name}")`;
+            const task = m.active_task ? `doing ${m.active_task.type}` : "idle";
+            return `${m.name} at (${m.position?.x}, ${m.position?.y}), hp ${m.health}, ${task}${m.vehicle ? `, in a ${m.vehicle}` : ""}`;
+          })
+          .join("; ") +
+        ".",
+    );
   }
 
   const players = asArray(state.players);
@@ -325,19 +340,33 @@ function formatBlueprint(bp: ImportedBlueprint): string {
 
 /** Wraps a typed run function into a ToolSpec: re-validates args with the
  *  schema and converts any failure into an "Error: ..." string. */
+const companionField = z
+  .string()
+  .max(20)
+  .optional()
+  .describe(
+    'which companion performs this (default "AI"); other_companions in look_around lists the crew',
+  );
+
 function spec<S extends z.ZodObject<z.ZodRawShape>>(
   name: string,
   description: string,
   schema: S,
   run: (bridge: Bridge, args: z.infer<S>) => Promise<string>,
 ): ToolSpec {
+  // Every tool accepts an optional `companion`; a scoped bridge injects it
+  // into all mod calls, so individual tools stay companion-agnostic.
+  const fullSchema = schema.extend({ companion: companionField });
   return {
     name,
     description,
-    schema,
+    schema: fullSchema,
     execute: async (bridge, args) => {
       try {
-        return await run(bridge, schema.parse(args) as z.infer<S>);
+        const parsed = fullSchema.parse(args);
+        const companionName = (parsed as { companion?: string }).companion;
+        const scoped = companionName ? bridge.scoped(companionName) : bridge;
+        return await run(scoped, parsed as z.infer<S>);
       } catch (e) {
         return err(e);
       }
@@ -965,14 +994,21 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "respawn",
-      "Spawn your companion character (or locate the existing one) — use this when look_around says you have no body, e.g. after dying. Spawns near a connected player.",
-      z.object({}),
-      async (bridge) => {
-        const res = await bridge.call<SpawnResult>("spawn_companion", {});
+      'Spawn a companion character (or locate an existing one). Use after dying, AND to create ADDITIONAL companions: pass a new name (e.g. "Anna") to add one to the crew — up to 4, each with its own color, label and task queue. Every action tool then takes companion:"Anna" to direct that body. Spawns near a connected player.',
+      z.object({
+        name: z
+          .string()
+          .max(20)
+          .optional()
+          .describe('companion name; default "AI". A NEW name creates a NEW companion'),
+      }),
+      async (bridge, { name }) => {
+        const res = await bridge.call<SpawnResult>("spawn_companion", { name });
         const at = `(${res.position.x}, ${res.position.y})`;
+        const who = res.name ?? name ?? "AI";
         return res.already_existed
-          ? `You already have a body — it is at ${at}.`
-          : `Respawned at ${at}.`;
+          ? `${who} already has a body — it is at ${at}.`
+          : `${who} spawned at ${at}.`;
       },
     ),
 

@@ -13,6 +13,7 @@ export interface PingResult {
 }
 
 export interface SpawnResult {
+  name?: string;
   position: Position;
   unit_number: number;
   already_existed: boolean;
@@ -69,7 +70,18 @@ export interface StructureGroup {
 
 export interface GetStateResult {
   tick: number;
+  /** Summaries of the crew other than the one this snapshot centers on. */
+  other_companions?: Array<{
+    name: string;
+    dead?: boolean;
+    position?: Position;
+    health?: number;
+    active_task?: ActiveTaskSummary | null;
+    queue_length?: number;
+    vehicle?: string;
+  }>;
   companion?: {
+    name?: string;
     position: Position;
     health: number;
     inventory: Record<string, number> | Record<string, never>;

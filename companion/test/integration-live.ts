@@ -45,12 +45,8 @@ async function main(): Promise<void> {
   // wipe previous test artifacts (built structures, planted ore) up front.
   await bridge.call("cancel", { all: true }).catch(() => {});
   await lua(`local s = game.surfaces[1]
-    for _, e in pairs(s.find_entities_filtered{force = "player"}) do
-      if e.type ~= "character" then e.destroy() end
-    end
+    for _, e in pairs(s.find_entities_filtered{force = "player"}) do e.destroy() end
     for _, e in pairs(s.find_entities_filtered{name = "copper-ore"}) do e.destroy() end
-    local c = ${findChar}
-    if c then c.get_main_inventory().clear() end
     local f = game.forces.player
     f.research_queue = {}
     f.technologies["automation"].researched = false
@@ -59,7 +55,8 @@ async function main(): Promise<void> {
 
   // ---------- transport ----------
   const ping = await bridge.call<PingResult>("ping");
-  check("ping", ping.mod_version === "0.1.0", `factorio ${ping.factorio_version}, tick ${ping.tick}`);
+  check("ping", /^\d+\.\d+\.\d+$/.test(ping.mod_version),
+    `factorio ${ping.factorio_version}, mod ${ping.mod_version}, tick ${ping.tick}`);
 
   const echo = await bridge.call<{ data: string }>("echo", { size: 12_000 });
   check("chunked echo 12kB", echo.data.length === 12_000 && /^x+$/.test(echo.data.slice(0, 50)),
