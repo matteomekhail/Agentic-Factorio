@@ -45,9 +45,13 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
     { name: "agentic-factorio", version: "0.1.0" },
     {
       instructions:
-        "Controls an AI companion character inside a running Factorio game. " +
-        "Call connect_status first to verify the game is reachable and the companion is alive, " +
-        "then use look_around to orient before acting. Tool results are plain sentences.",
+        "Controls a CREW of up to 4 AI companion characters inside a running Factorio game. " +
+        "Call connect_status first, then look_around to orient. Tool results are plain sentences. " +
+        "Crew doctrine: parallelize by default — when a request has 2+ independent jobs, spawn " +
+        'extra companions (respawn {name:"Anna"}) and dispatch with companion:"Name" plus ' +
+        "background:true (returns immediately; outcomes arrive via wait_for_chat as [event] " +
+        "lines). Await a tool only when the next step depends on its result; keep dependent " +
+        "steps on one companion so its queue runs them in order.",
     },
   );
 
