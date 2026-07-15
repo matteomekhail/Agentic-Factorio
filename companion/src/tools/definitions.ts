@@ -648,6 +648,25 @@ export function toolSpecs(): ToolSpec[] {
     ),
 
     spec(
+      "deliver_items",
+      'Bring items from your inventory TO A PLAYER and hand them over (e.g. after mining or crafting for them). You chase the player even if they move. Pass items for specific counts, or all: true to hand over everything you carry. This is how "portami X / bring me X" requests end.',
+      z.object({
+        items: itemsField.optional(),
+        all: z.boolean().optional().describe("hand over your entire inventory"),
+        player: z.string().optional().describe("player name; defaults to the first connected player"),
+      }),
+      async (bridge, { items, all, player }) => {
+        if (!items && !all) {
+          return "Error: say what to deliver — items with counts, or all: true.";
+        }
+        return bridge.enqueueAndWait(
+          { type: "deliver", items, all, player },
+          { timeoutMs: 240_000 },
+        );
+      },
+    ),
+
+    spec(
       "set_recipe",
       'Set the recipe of an assembling machine at the given position (e.g. "copper-cable"). You auto-walk within reach first.',
       z.object({

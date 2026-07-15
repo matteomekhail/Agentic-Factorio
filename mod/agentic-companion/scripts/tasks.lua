@@ -27,6 +27,7 @@ local runners = {
   craft = craft,
   insert = transfer.insert,
   extract = transfer.extract,
+  deliver = transfer.deliver,
   build_plan = build_plan,
   deconstruct = deconstruct,
   fight = fight,

@@ -250,6 +250,7 @@ export type Task =
   | { type: "craft"; recipe: string; count?: number }
   | { type: "insert"; target: Position; items: Record<string, number> }
   | { type: "extract"; target: Position; items?: Record<string, number>; all?: boolean }
+  | { type: "deliver"; items?: Record<string, number>; all?: boolean; player?: string }
   | { type: "set_recipe"; target: Position; recipe: string }
   | { type: "rotate"; target: Position; direction?: number }
   // Sequential multi-entity build; max 100 steps, failed steps skipped unless stop_on_error.
