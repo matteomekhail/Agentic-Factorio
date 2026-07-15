@@ -3,6 +3,8 @@
 -- RPC/task acts on: rpc.lua sets it from params.companion, tasks.lua sets it
 -- per lane before each tick. Existing single-companion code keeps calling
 -- get()/require_companion() unchanged.
+local starter = require("scripts.starter")
+
 local M = {}
 
 M.DEFAULT = "AI"
@@ -146,6 +148,16 @@ function M.update_map_tag()
   end
 end
 
+-- Issue/refresh the default companion's starter blueprint books. Runs
+-- on_nth_tick (wired in control.lua) so a save loaded with regenerated
+-- blueprint data picks the books up without a respawn — must never raise.
+function M.ensure_starter_books()
+  local rec = records()[M.DEFAULT]
+  local ent = rec and rec.entity
+  if not (ent and ent.valid) then return end
+  pcall(starter.ensure, rec, ent)
+end
+
 function M.spawn(params)
   local name = (type(params.name) == "string" and params.name ~= "") and params.name or M.context()
   if #name > 20 then error("companion names must be 20 characters or fewer") end
@@ -196,6 +208,10 @@ function M.spawn(params)
   rec.entity = ent
   rec.unit_number = ent.unit_number
   ent.color = color_for(name)
+  if name == M.DEFAULT then
+    -- force: the body is brand new, so its inventory can't have the books yet
+    pcall(starter.ensure, rec, ent, true)
+  end
   attach_label(rec, name, ent)
   M.update_map_tag()
 

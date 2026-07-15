@@ -52,6 +52,21 @@ player is connected. Also used to respawn after death.
 
 ### `say` — `{ text }` → `{}` — prints `[AI] <text>` (teal) to all players.
 
+### `take_screenshot` — `{ request_id, center?: {x,y}, radius?: 45 }` →
+`{ path, center:{x,y}, radius, resolution:{w,h} }`
+
+Schedules a 1024×1024 JPEG render on the addressed companion's surface, centered on the
+companion unless `center` is supplied. `radius` is clamped to 10..100 tiles. The mod writes
+the image below Factorio's `script-output/agentic-factorio/` directory and returns only its
+relative path; Factorio completes the file at the end of the update. `request_id` must be a
+random 8..64-character alphanumeric/hyphen token so an old file can never satisfy a fresh
+request. Factorio's renderer does nothing on a headless server.
+
+The TS `view_area` tool waits for the file, reads it as base64, deletes the temporary JPEG,
+and returns text + image content to both AI-SDK and MCP clients. It requires Factorio and
+the companion app on the same machine. The user-data directory comes from setup, the
+standard OS location, or `AGENTIC_FACTORIO_USER_DIR`.
+
 ### `get_state` — `{ radius?: 40 }` (max 80) →
 ```jsonc
 {
@@ -155,10 +170,11 @@ One neutral registry (`companion/src/tools/definitions.ts`) drives both the buil
 AI-SDK loop and the MCP server:
 
 ```ts
-interface ToolSpec { name; description; schema: z.ZodObject; execute(bridge, args): Promise<string> }
+type ToolOutput = string | { text: string; image: { data: string; mimeType: "image/jpeg" } }
+interface ToolSpec { name; description; schema: z.ZodObject; execute(bridge, args): Promise<ToolOutput> }
 ```
 
-Agent-facing tools: `say`, `look_around`, `inspect_entity`, `walk_to`, `follow_player`,
+Agent-facing tools include `say`, `look_around`, `view_area`, `inspect_entity`, `walk_to`, `follow_player`,
 `mine`, `place_entity`, `craft_items`, `insert_items`, `extract_items`, `set_recipe`,
 `rotate_entity`, `start_research`, `respawn`, `stop`.
 MCP-only extras: `connect_status`, `read_chat`, `wait_for_chat` (long-poll ≤55 s).
@@ -166,6 +182,12 @@ MCP-only extras: `connect_status`, `read_chat`, `wait_for_chat` (long-poll ≤55
 `follow_player` enqueues with `replace:true` and returns immediately (persistent task —
 never awaited). Every other task tool uses `enqueueAndWait` with per-action timeouts.
 Tool errors are returned as `"Error: …"` strings, never thrown.
+
+`view_area` is deliberately opt-in: its description and all three system-prompt surfaces
+(built-in loop, Codex brain and MCP server) direct the model to use it for explicit visual
+requests, ambiguous complex layouts and substantial-build QA — not for routine checks or
+facts better served by structured tools. AI-SDK history replaces the base64 image with a
+short note after the active turn so stale screenshots are neither persisted nor resent.
 
 ## v3 — general building & combat toolkit
 
@@ -257,18 +279,44 @@ next enemy until none left → done "cleared, N kills". Fails cleanly when no gu
 first"), reports "out of ammo" mid-fight, flees + reports when health drops below the threshold.
 get_state's companion block gains `"equipment": {"gun":"pistol","ammo":{"firearm-magazine":57},"armor":null}`.
 
-### Blueprints (instant method)
+### Blueprints (instant methods)
 
-`import_blueprint` — `{ "string": "0eNq..." }` →
+Three ways in, one normalized shape out:
+
+`import_blueprint` — `{ "string": "0eNq...", "offset?": 0, "limit?": 100 }`
+`list_blueprints` — `{ "player?": "name" }`
+`read_blueprint` — `{ "label?": "...", "book?": "...", "offset?": 0, "limit?": 100, "player?": "name" }`
+
+The decoded shape (import/read):
 ```jsonc
-{ "label": "Mining outpost", "size": {"w": 12, "h": 8},
+{ "label": "Mining outpost", "size": {"w": 12, "h": 8},   // footprint of the WHOLE print
+  "total_entities": 350, "offset": 0,                       // window bookkeeping
   "entities": [ {"name":"burner-mining-drill","position":{"x":0,"y":0},"direction":4,"recipe":null}, ... ],
-  "items_needed": {"burner-mining-drill":6,"wooden-chest":6} }
+  "next_offset": 100,                                       // absent on the last window
+  "items_needed": {"burner-mining-drill":6,"wooden-chest":6}, // whole print, not the window
+  "skipped": ["some-modded-entity"],                        // unknown here, dropped
+  "tiles": {"count": 128, "kinds": ["concrete"]} }          // flooring; no tool places tiles
 ```
-Decodes via a scratch inventory + `import_stack` + `get_blueprint_entities`; positions normalized
-so the top-left entity sits at (0,0). **Does not build** — the model offsets the coordinates and
-feeds them to `build_plan`. Tiles in the blueprint are ignored; report unknown/modded entities in
-an `"skipped"` list.
+Decodes via `import_stack` + `get_blueprint_entities` (a scratch inventory for pasted strings);
+positions normalized so the whole print's top-left entity sits at (0,0) — the origin never moves
+with the window, so every batch shares one anchor. **Does not build** — the model offsets the
+coordinates and feeds them to `build_plan`. Huge prints are read in `offset`/`limit` windows
+(default 100 = one `build_plan` batch, max 200).
+
+`list_blueprints` enumerates every reachable print: the player's cursor (item or 2.0 library
+record), main inventories, and blueprint books — recursing into nested books (depth ≤ 4) — for
+the player and every companion. Returns `{ blueprints: [{label, where, book?, entity_count}],
+total, note }` (capped at 200 entries). The game's blueprint LIBRARY window is client-side and
+invisible to mods. `read_blueprint` picks by label (exact, then substring, case-insensitive);
+`book` filters to matching book paths first — that's how duplicate labels across books are
+disambiguated.
+
+**Starter books**: the default companion spawns carrying the blueprint books generated from
+`BlueprintBooks/*.txt` (see `scripts/build-starter-blueprints.mjs` → generated
+`mod/scripts/starter_blueprints.lua`, issued by `mod/scripts/starter.lua`). The data carries a
+content-hash `version`; a 120-tick handler re-issues the set to a running save whenever the
+version changes (old starter books are removed by label — companion-renamed books are left
+alone).
 
 ## v4 — events & multi-companion
 

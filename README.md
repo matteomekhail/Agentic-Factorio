@@ -80,7 +80,8 @@ Also supported: `ANTHROPIC_API_KEY`, OpenAI, or Ollama locally for free. Use
 Look around · inspect machines (status, recipe, contents) · walk anywhere (real
 pathfinding) · follow you · mine ore / trees / rocks in bulk · place buildings ·
 craft items · load & unload machines · change recipes · rotate entities · start
-research · respawn after death. Every positional action auto-walks into reach first.
+research · respawn after death · view a real rendered screenshot of the base when
+spatial context matters. Every positional action auto-walks into reach first.
 
 New in M7: one-call factory diagnosis (analyze_factory: stuck machines grouped
 with missing ingredients + electric grid summary) · per-minute production rates
@@ -102,8 +103,10 @@ them · deconstructs your buildings, but only on your explicit request
 (consent-gated) · fights: equips gun/ammo/armor, clears nearby nests, and retreats
 on its own when badly hurt.
 
-Current limits: no vehicles, trains or circuit networks; one companion per game.
-In combat it's one soldier with a gun, not an army — no turret management.
+Screenshot vision requires a non-headless Factorio host on the same machine as the
+companion app. `setup` remembers Factorio's user-data directory; custom/portable
+installs can also set `AGENTIC_FACTORIO_USER_DIR` to the folder containing
+`script-output`. A vision-capable model is required to interpret the returned image.
 
 ## Repo layout
 
