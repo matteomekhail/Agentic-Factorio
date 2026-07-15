@@ -83,6 +83,7 @@ export async function runWizard(): Promise<void> {
 
   const config: AppConfig = {
     ...existing,
+    factorioUserDir: userDir,
     rcon: { host: existing?.rcon?.host ?? "127.0.0.1", port, password },
   };
   let playReady = true;

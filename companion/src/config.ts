@@ -13,6 +13,7 @@ export interface RconSettings {
 
 export interface AppConfig {
   rcon?: Partial<RconSettings>;
+  factorioUserDir?: string;
   provider?: string;
   model?: string;
   apiKey?: string;

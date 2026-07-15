@@ -7,7 +7,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Bridge } from "../bridge.js";
 import { RconClient } from "../rcon.js";
-import { formatState, toolSpecs } from "../tools/definitions.js";
+import {
+  formatState,
+  isImageToolOutput,
+  toolSpecs,
+  type ToolOutput,
+} from "../tools/definitions.js";
 import {
   asArray,
   type ChatMessage,
@@ -29,10 +34,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const errText = (e: unknown): string =>
   `Error: ${e instanceof Error ? e.message : String(e)}`;
 
-function toResult(text: string) {
+function toResult(output: ToolOutput) {
+  if (isImageToolOutput(output)) {
+    return {
+      content: [
+        { type: "text" as const, text: output.text },
+        {
+          type: "image" as const,
+          data: output.image.data,
+          mimeType: output.image.mimeType,
+        },
+      ],
+      isError: false,
+    };
+  }
   return {
-    content: [{ type: "text" as const, text }],
-    isError: text.startsWith("Error:"),
+    content: [{ type: "text" as const, text: output }],
+    isError: output.startsWith("Error:"),
   };
 }
 
@@ -64,7 +82,11 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         "furnace feeds it forever; then inserters/belts/chests; then electricity and " +
         "assemblers with set_recipe. When the player asks for items, prefer building " +
         "production that keeps making them, then deliver the first batch.\n" +
-        "4. DISCIPLINE: use ONLY these factorio tools — never shell/exec/raw RCON (raw /c " +
+        "4. VISION: view_area returns a real screenshot. Use it when the player explicitly " +
+        "asks you to look, when a complex layout or orientation is visually ambiguous, or " +
+        "to verify a substantial build. Do not call it routinely: look_around, scan_area and " +
+        "inspect_entity remain authoritative for exact coordinates, counts and machine state.\n" +
+        "5. DISCIPLINE: use ONLY these factorio tools — never shell/exec/raw RCON (raw /c " +
         "commands spam every player's chat; inspect_entity reads belts and pipes, " +
         "analyze_factory diagnoses the whole factory in one call). Speak to the player ONLY " +
         "via say, 1-2 short sentences; announce long jobs before starting and summarize " +

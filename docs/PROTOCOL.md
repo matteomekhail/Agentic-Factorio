@@ -52,6 +52,21 @@ player is connected. Also used to respawn after death.
 
 ### `say` — `{ text }` → `{}` — prints `[AI] <text>` (teal) to all players.
 
+### `take_screenshot` — `{ request_id, center?: {x,y}, radius?: 45 }` →
+`{ path, center:{x,y}, radius, resolution:{w,h} }`
+
+Schedules a 1024×1024 JPEG render on the addressed companion's surface, centered on the
+companion unless `center` is supplied. `radius` is clamped to 10..100 tiles. The mod writes
+the image below Factorio's `script-output/agentic-factorio/` directory and returns only its
+relative path; Factorio completes the file at the end of the update. `request_id` must be a
+random 8..64-character alphanumeric/hyphen token so an old file can never satisfy a fresh
+request. Factorio's renderer does nothing on a headless server.
+
+The TS `view_area` tool waits for the file, reads it as base64, deletes the temporary JPEG,
+and returns text + image content to both AI-SDK and MCP clients. It requires Factorio and
+the companion app on the same machine. The user-data directory comes from setup, the
+standard OS location, or `AGENTIC_FACTORIO_USER_DIR`.
+
 ### `get_state` — `{ radius?: 40 }` (max 80) →
 ```jsonc
 {
@@ -155,10 +170,11 @@ One neutral registry (`companion/src/tools/definitions.ts`) drives both the buil
 AI-SDK loop and the MCP server:
 
 ```ts
-interface ToolSpec { name; description; schema: z.ZodObject; execute(bridge, args): Promise<string> }
+type ToolOutput = string | { text: string; image: { data: string; mimeType: "image/jpeg" } }
+interface ToolSpec { name; description; schema: z.ZodObject; execute(bridge, args): Promise<ToolOutput> }
 ```
 
-Agent-facing tools: `say`, `look_around`, `inspect_entity`, `walk_to`, `follow_player`,
+Agent-facing tools include `say`, `look_around`, `view_area`, `inspect_entity`, `walk_to`, `follow_player`,
 `mine`, `place_entity`, `craft_items`, `insert_items`, `extract_items`, `set_recipe`,
 `rotate_entity`, `start_research`, `respawn`, `stop`.
 MCP-only extras: `connect_status`, `read_chat`, `wait_for_chat` (long-poll ≤55 s).
@@ -166,6 +182,12 @@ MCP-only extras: `connect_status`, `read_chat`, `wait_for_chat` (long-poll ≤55
 `follow_player` enqueues with `replace:true` and returns immediately (persistent task —
 never awaited). Every other task tool uses `enqueueAndWait` with per-action timeouts.
 Tool errors are returned as `"Error: …"` strings, never thrown.
+
+`view_area` is deliberately opt-in: its description and all three system-prompt surfaces
+(built-in loop, Codex brain and MCP server) direct the model to use it for explicit visual
+requests, ambiguous complex layouts and substantial-build QA — not for routine checks or
+facts better served by structured tools. AI-SDK history replaces the base64 image with a
+short note after the active turn so stale screenshots are neither persisted nor resent.
 
 ## v3 — general building & combat toolkit
 

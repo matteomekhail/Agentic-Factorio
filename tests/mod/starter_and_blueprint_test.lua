@@ -242,5 +242,34 @@ do
     "available", "read: unknown label errors with suggestions")
 end
 
+-- ----------------------------------------------------- screenshot.lua tests
+local requested_screenshot
+game.take_screenshot = function(args) requested_screenshot = args end
+local screenshot = require("scripts.screenshot")
+
+do
+  storage.companions.AI.entity.position = { x = 4, y = 8 }
+  storage.companions.AI.entity.surface = { name = "nauvis" }
+  local result = screenshot.take({
+    request_id = "offline-test-123",
+    center = { x = 12, y = -3 },
+    radius = 500,
+  })
+  check(result.path == "agentic-factorio/view-offline-test-123.jpg",
+    "screenshot: unique path stays under script-output")
+  check(result.center.x == 12 and result.center.y == -3 and result.radius == 100,
+    "screenshot: center passes through and radius is clamped")
+  check(requested_screenshot.surface == storage.companions.AI.entity.surface
+      and requested_screenshot.resolution.x == 1024
+      and requested_screenshot.resolution.y == 1024,
+    "screenshot: renders the companion surface at bounded resolution")
+  check(requested_screenshot.show_entity_info == true
+      and requested_screenshot.force_render == true
+      and requested_screenshot.path == result.path,
+    "screenshot: visual factory detail and end-of-tick rendering requested")
+  expect_error(function() screenshot.take({ request_id = "../bad" }) end,
+    "request_id", "screenshot: unsafe request ids rejected")
+end
+
 print(failures == 0 and "\nALL TESTS PASSED" or ("\n" .. failures .. " FAILURES"))
 os.exit(failures == 0 and 0 or 1)

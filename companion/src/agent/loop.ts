@@ -19,6 +19,24 @@ export interface AgentLoopOptions {
   budgetWarnTokens?: number;
 }
 
+const VIEW_HISTORY_NOTE =
+  "Screenshot viewed during that turn; call view_area again for a fresh image if visual context is still needed.";
+
+/** Images are useful inside the active tool loop but expensive and stale on the
+ * next wake. Keep a small note in persisted history instead of the base64 file. */
+export function compactVisualToolResults(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "tool" || !Array.isArray(message.content)) return message;
+    let changed = false;
+    const content = message.content.map((part) => {
+      if (part.type !== "tool-result" || part.toolName !== "view_area") return part;
+      changed = true;
+      return { ...part, output: { type: "text" as const, value: VIEW_HISTORY_NOTE } };
+    });
+    return changed ? ({ ...message, content } as ModelMessage) : message;
+  });
+}
+
 export class AgentLoop {
   private history: ModelMessage[] = [];
   private inbox: ChatMessage[] = [];
@@ -146,7 +164,7 @@ export class AgentLoop {
         stopWhen: stepCountIs(MAX_STEPS_PER_WAKE),
         abortSignal: this.abort.signal,
       });
-      this.history.push(...result.response.messages);
+      this.history.push(...compactVisualToolResults(result.response.messages));
       const usage = result.totalUsage;
       this.trackUsage(usage.inputTokens, usage.outputTokens);
       log.info(

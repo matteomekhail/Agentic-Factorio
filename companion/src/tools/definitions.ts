@@ -20,12 +20,35 @@ import {
   type StartResearchResult,
   type Task,
 } from "../types.js";
+import { captureView, type ImageToolOutput } from "../vision.js";
+
+export type ToolOutput = string | ImageToolOutput;
+
+export function isImageToolOutput(output: ToolOutput): output is ImageToolOutput {
+  return typeof output !== "string";
+}
+
+export function toModelOutput(output: ToolOutput) {
+  if (!isImageToolOutput(output)) return { type: "text" as const, value: output };
+  return {
+    type: "content" as const,
+    value: [
+      { type: "text" as const, text: output.text },
+      {
+        type: "file" as const,
+        data: { type: "data" as const, data: output.image.data },
+        mediaType: output.image.mimeType,
+        filename: output.image.filename,
+      },
+    ],
+  };
+}
 
 export interface ToolSpec {
   name: string;
   description: string;
   schema: z.ZodObject<z.ZodRawShape>;
-  execute(bridge: Bridge, args: Record<string, unknown>): Promise<string>;
+  execute(bridge: Bridge, args: Record<string, unknown>): Promise<ToolOutput>;
 }
 
 export interface ToolHooks {
@@ -375,7 +398,7 @@ function spec<S extends z.ZodObject<z.ZodRawShape>>(
   name: string,
   description: string,
   schema: S,
-  run: (bridge: Bridge, args: z.infer<S>) => Promise<string>,
+  run: (bridge: Bridge, args: z.infer<S>) => Promise<ToolOutput>,
 ): ToolSpec {
   // Every tool accepts optional `companion` and `background`; a scoped bridge
   // injects/handles them, so individual tools stay agnostic of both.
@@ -448,6 +471,24 @@ export function toolSpecs(): ToolSpec[] {
       }),
       async (bridge, { radius }) =>
         formatState(await bridge.call<GetStateResult>("get_state", { radius })),
+    ),
+
+    spec(
+      "view_area",
+      "See a fresh rendered screenshot of the actual base. Use it when visual layout materially affects the decision: when the player explicitly asks you to look, before changing a complex multi-machine area, to understand congestion/orientation that structured reports leave ambiguous, or to visually verify a substantial build. Do NOT use it for routine checks, inventories, recipes, counts, exact coordinates or hidden machine state; look_around, scan_area and inspect_entity are authoritative for those. Defaults to your companion's position.",
+      z.object({
+        center: z
+          .object({ x: z.number(), y: z.number() })
+          .optional()
+          .describe("map position to center on; defaults to the addressed companion"),
+        radius: z
+          .number()
+          .min(10)
+          .max(100)
+          .optional()
+          .describe("approximate tiles visible from center in every direction, default 45"),
+      }),
+      async (bridge, args) => captureView(bridge, args),
     ),
 
     spec(
@@ -1163,7 +1204,7 @@ function summarizeArgs(args: Record<string, unknown>): string {
 export function buildTools(bridge: Bridge, hooks: ToolHooks = {}): ToolSet {
   const tools: ToolSet = {};
   for (const s of toolSpecs()) {
-    tools[s.name] = tool({
+    tools[s.name] = tool<Record<string, unknown>, ToolOutput, {}>({
       description: s.description,
       inputSchema: s.schema,
       execute: async (args) => {
@@ -1171,6 +1212,7 @@ export function buildTools(bridge: Bridge, hooks: ToolHooks = {}): ToolSet {
         hooks.onTool?.(s.name, summarizeArgs(record));
         return s.execute(bridge, record);
       },
+      toModelOutput: ({ output }) => toModelOutput(output as ToolOutput),
     });
   }
   return tools;
