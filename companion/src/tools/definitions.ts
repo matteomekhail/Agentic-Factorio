@@ -5,6 +5,7 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { Bridge } from "../bridge.js";
 import {
+  type AnalyzeFactoryResult,
   asArray,
   type BuildableArea,
   type CanPlaceResult,
@@ -429,6 +430,35 @@ export function toolSpecs(): ToolSpec[] {
               : `${n}: unknown — no item, entity or recipe by this name; check the exact internal name (lowercase-with-dashes)`;
           })
           .join("\n");
+      },
+    ),
+
+    spec(
+      "analyze_factory",
+      "Diagnose everything that's stuck in an area in ONE call: machines grouped by problem (no power, low power, no fuel, missing ingredients — with WHICH ingredient when detectable, output full, drill on depleted ore, idle labs) plus a power-grid summary. ALWAYS prefer this over inspecting machines one by one when the player asks what's wrong with the factory.",
+      z.object({
+        radius: z.number().min(5).max(80).optional().describe("area radius in tiles, default 40"),
+      }),
+      async (bridge, { radius }) => {
+        const r = await bridge.call<AnalyzeFactoryResult>("analyze_factory", { radius });
+        const lines: string[] = [];
+        lines.push(
+          `Checked ${r.machines_checked} machine(s) within ${r.radius} tiles: ${r.working} working.`,
+        );
+        for (const p of asArray(r.problems)) {
+          const missing = p.missing ? ` — missing: ${p.missing}` : "";
+          lines.push(
+            `${p.count}x ${p.name}: ${p.problem.replace(/_/g, " ")}${missing} (e.g. at (${p.sample.x}, ${p.sample.y}))`,
+          );
+        }
+        if (asArray(r.problems).length === 0) lines.push("No stuck machines found.");
+        if (r.power) {
+          const pw = r.power;
+          lines.push(
+            `Power: ${num(pw.production_kw ?? 0)} kW produced, ${num(pw.consumption_kw ?? 0)} kW consumed across ${pw.networks} network(s).`,
+          );
+        }
+        return lines.join("\n");
       },
     ),
 

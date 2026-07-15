@@ -224,6 +224,20 @@ export interface BuildPlanStep {
   insert?: Record<string, number>;
 }
 
+export interface AnalyzeFactoryResult {
+  radius: number;
+  machines_checked: number;
+  working: number;
+  problems?: Array<{
+    name: string;
+    problem: string;
+    count: number;
+    sample: Position;
+    missing?: string;
+  }>;
+  power?: GetStateResult["power"];
+}
+
 export type Task =
   | { type: "walk_to"; target: Position; arrive_within?: number }
   // Persistent: runs until cancelled/replaced.
