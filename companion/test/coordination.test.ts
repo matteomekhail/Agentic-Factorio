@@ -28,6 +28,36 @@ describe("CoordinationBroker", () => {
     expect(jobA?.id).not.toBe(jobB?.id);
   });
 
+  it("wakes the coordinator with terminal job events exactly once", async () => {
+    const [broker] = brokers();
+    const coordinator = await broker.registerAgent({ name: "Coordinator", role: "coordinator" });
+    const worker = await broker.registerAgent({ name: "Builder", role: "worker" });
+    await broker.submitJobs(coordinator.id, [
+      { key: "iron", title: "Automate iron", instructions: "Build one closed loop" },
+    ]);
+    const job = await broker.claimJob(worker.id);
+    await broker.finishJob(worker.id, job!.id, "8 drills and 12 furnaces working");
+
+    await expect(broker.takeCoordinationEvents(coordinator.id)).resolves.toMatchObject([
+      { kind: "job_done", jobId: job!.id, text: "8 drills and 12 furnaces working" },
+    ]);
+    await expect(broker.takeCoordinationEvents(coordinator.id)).resolves.toEqual([]);
+  });
+
+  it("lets a coordinator take over a ready job when spawning a worker fails", async () => {
+    const [broker] = brokers();
+    const coordinator = await broker.registerAgent({ name: "Coordinator", role: "coordinator" });
+    const [submitted] = await broker.submitJobs(coordinator.id, [
+      { title: "Bootstrap coal", instructions: "Build one working coal loop" },
+    ]);
+    const job = await broker.takeoverJob(coordinator.id, submitted!.id);
+    expect(job).toMatchObject({ status: "claimed", assignedAgent: coordinator.id });
+    await broker.finishJob(coordinator.id, job.id, "coal is moving into a chest");
+    await expect(broker.takeCoordinationEvents(coordinator.id)).resolves.toMatchObject([
+      { kind: "job_done", jobId: job.id },
+    ]);
+  });
+
   it("waits for dependencies and deduplicates idempotent submissions", async () => {
     const [broker] = brokers();
     const coordinator = await broker.registerAgent({ name: "Lead", role: "coordinator" });

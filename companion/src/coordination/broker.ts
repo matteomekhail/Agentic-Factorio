@@ -50,9 +50,20 @@ export interface AreaReservation {
   expiresAt: number;
 }
 
+export interface CoordinationEvent {
+  id: number;
+  kind: "job_done" | "job_failed" | "job_requeued" | "job_expired";
+  jobId: string;
+  title: string;
+  agentId?: string;
+  text: string;
+  createdAt: number;
+}
+
 interface AgentCursor {
   chatId: number;
   eventId: number;
+  coordinationEventId: number;
   initialized: boolean;
 }
 
@@ -63,6 +74,8 @@ interface CoordinationState {
   leases: Record<string, CompanionLease>;
   reservations: Record<string, AreaReservation>;
   cursors: Record<string, AgentCursor>;
+  nextCoordinationEventId: number;
+  coordinationEvents: CoordinationEvent[];
 }
 
 export interface SubmitJobInput {
@@ -83,6 +96,8 @@ const emptyState = (): CoordinationState => ({
   leases: {},
   reservations: {},
   cursors: {},
+  nextCoordinationEventId: 1,
+  coordinationEvents: [],
 });
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -116,7 +131,12 @@ export class CoordinationBroker {
         lastSeen: now,
       };
       state.agents[id] = agent;
-      state.cursors[id] ??= { chatId: 0, eventId: 0, initialized: false };
+      state.cursors[id] ??= {
+        chatId: 0,
+        eventId: 0,
+        coordinationEventId: state.nextCoordinationEventId - 1,
+        initialized: false,
+      };
       return agent;
     });
   }
@@ -198,6 +218,24 @@ export class CoordinationBroker {
     });
   }
 
+  async takeoverJob(coordinatorId: string, jobId: string): Promise<CoordinationJob> {
+    return this.mutate((state) => {
+      const coordinator = this.touchAgent(state, coordinatorId);
+      if (coordinator.role !== "coordinator") throw new Error("only a coordinator can take over a job");
+      const job = state.jobs[jobId];
+      if (!job) throw new Error(`unknown job ${jobId}`);
+      if (job.status !== "queued") throw new Error(`job ${jobId} is ${job.status}, not queued`);
+      if (!job.dependsOn.every((id) => state.jobs[id]?.status === "done")) {
+        throw new Error(`job ${jobId} still has unfinished dependencies`);
+      }
+      job.status = "claimed";
+      job.assignedAgent = coordinatorId;
+      job.claimExpiresAt = Date.now() + 30 * 60 * 1000;
+      job.updatedAt = Date.now();
+      return job;
+    });
+  }
+
   async finishJob(agentId: string, jobId: string, result: string): Promise<CoordinationJob> {
     return this.setJobTerminal(agentId, jobId, "done", result);
   }
@@ -210,6 +248,12 @@ export class CoordinationBroker {
       job.assignedAgent = retry ? undefined : agentId;
       job.claimExpiresAt = undefined;
       job.updatedAt = Date.now();
+      this.pushEvent(state, {
+        kind: retry ? "job_requeued" : "job_failed",
+        job,
+        agentId,
+        text: error,
+      });
       return job;
     });
   }
@@ -287,7 +331,12 @@ export class CoordinationBroker {
   async cursor(agentId: string): Promise<{ agent: CoordinationAgent; cursor: AgentCursor; companions: string[] }> {
     return this.mutate((state) => {
       const agent = this.touchAgent(state, agentId);
-      const cursor = state.cursors[agentId] ??= { chatId: 0, eventId: 0, initialized: false };
+      const cursor = state.cursors[agentId] ??= {
+        chatId: 0,
+        eventId: 0,
+        coordinationEventId: state.nextCoordinationEventId - 1,
+        initialized: false,
+      };
       const companions = Object.values(state.leases).filter((lease) => lease.agentId === agentId).map((lease) => lease.companion);
       return { agent, cursor, companions };
     });
@@ -296,8 +345,29 @@ export class CoordinationBroker {
   async updateCursor(agentId: string, input: Partial<AgentCursor>): Promise<void> {
     await this.mutate((state) => {
       this.touchAgent(state, agentId);
-      const cursor = state.cursors[agentId] ??= { chatId: 0, eventId: 0, initialized: false };
+      const cursor = state.cursors[agentId] ??= {
+        chatId: 0,
+        eventId: 0,
+        coordinationEventId: state.nextCoordinationEventId - 1,
+        initialized: false,
+      };
       Object.assign(cursor, input);
+    });
+  }
+
+  async takeCoordinationEvents(agentId: string): Promise<CoordinationEvent[]> {
+    return this.mutate((state) => {
+      const agent = this.touchAgent(state, agentId);
+      if (agent.role !== "coordinator") return [];
+      const cursor = state.cursors[agentId] ??= {
+        chatId: 0,
+        eventId: 0,
+        coordinationEventId: state.nextCoordinationEventId - 1,
+        initialized: false,
+      };
+      const events = state.coordinationEvents.filter((event) => event.id > cursor.coordinationEventId);
+      if (events.length > 0) cursor.coordinationEventId = events[events.length - 1]!.id;
+      return events;
     });
   }
 
@@ -322,6 +392,12 @@ export class CoordinationBroker {
       else job.error = text;
       job.claimExpiresAt = undefined;
       job.updatedAt = Date.now();
+      this.pushEvent(state, {
+        kind: status === "done" ? "job_done" : "job_failed",
+        job,
+        agentId,
+        text,
+      });
       return job;
     });
   }
@@ -353,6 +429,11 @@ export class CoordinationBroker {
         job.claimExpiresAt = undefined;
         job.updatedAt = now;
         job.error = "worker claim expired; returned to queue";
+        this.pushEvent(state, {
+          kind: "job_expired",
+          job,
+          text: job.error,
+        });
       }
     }
   }
@@ -361,7 +442,35 @@ export class CoordinationBroker {
     if (!fs.existsSync(this.stateFile)) return emptyState();
     const parsed = JSON.parse(fs.readFileSync(this.stateFile, "utf8")) as CoordinationState;
     if (parsed.version !== 1 || !parsed.agents || !parsed.jobs) throw new Error(`invalid coordination state at ${this.stateFile}`);
+    parsed.nextCoordinationEventId ??= 1;
+    parsed.coordinationEvents ??= [];
+    for (const cursor of Object.values(parsed.cursors ?? {})) {
+      cursor.coordinationEventId ??= parsed.nextCoordinationEventId - 1;
+    }
     return parsed;
+  }
+
+  private pushEvent(
+    state: CoordinationState,
+    input: {
+      kind: CoordinationEvent["kind"];
+      job: CoordinationJob;
+      agentId?: string;
+      text: string;
+    },
+  ): void {
+    state.coordinationEvents.push({
+      id: state.nextCoordinationEventId++,
+      kind: input.kind,
+      jobId: input.job.id,
+      title: input.job.title,
+      agentId: input.agentId,
+      text: input.text,
+      createdAt: Date.now(),
+    });
+    if (state.coordinationEvents.length > 200) {
+      state.coordinationEvents.splice(0, state.coordinationEvents.length - 200);
+    }
   }
 
   private async mutate<T>(operation: (state: CoordinationState) => T): Promise<T> {

@@ -3,7 +3,7 @@
 The runtime method manifest and envelope validator live in
 `companion/src/protocol/contract.ts`. A conformance test verifies that every
 method registered by the Lua mod appears in that manifest. `ping` returns
-`protocol_version: 3`; incompatible clients must fail with an actionable error.
+`protocol_version: 4`; incompatible clients must fail with an actionable error.
 
 This file is the **single source of truth** for the JSON contract between the Factorio mod
 (`mod/agentic-companion`) and the companion app (`companion/`). Both sides must conform to it.
@@ -274,7 +274,7 @@ water/cliffs/entities (trees allowed but counted so the model can clear them fir
 ### Building at scale (task)
 
 ```jsonc
-{ "type":"build_plan", "stop_on_error?": false,
+{ "type":"build_plan", "stop_on_error?": false, "auto_craft?": true,
   "steps": [
     { "item":"burner-mining-drill", "position":{x,y}, "direction?":4,
       "recipe?":"iron-gear-wheel",              // for crafting machines, applied after placing

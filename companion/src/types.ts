@@ -1,4 +1,4 @@
-// TypeScript mirror of docs/PROTOCOL.md (v2 + v3 toolkit). Keep in sync with the mod.
+// TypeScript mirror of docs/PROTOCOL.md (through v4). Keep in sync with the mod.
 
 export interface Position {
   x: number;
@@ -11,6 +11,7 @@ export interface PingResult {
   factorio_version: string;
   tick: number;
   companion_exists: boolean;
+  companion_movement_speed?: number;
 }
 
 export interface SpawnResult {
@@ -299,7 +300,7 @@ export type Task =
   | { type: "set_recipe"; target: Position; recipe: string }
   | { type: "rotate"; target: Position; direction?: number }
   // Sequential multi-entity build; max 100 steps, failed steps skipped unless stop_on_error.
-  | { type: "build_plan"; steps: BuildPlanStep[]; stop_on_error?: boolean }
+  | { type: "build_plan"; steps: BuildPlanStep[]; stop_on_error?: boolean; auto_craft?: boolean }
   // Build a whole reachable blueprint (starter books etc.) at an anchor; max 1000 entities.
   | { type: "build_blueprint"; label: string; book?: string; anchor: Position; stop_on_error?: boolean }
   // Consent-gated: the mod fails the task unless confirm is true.

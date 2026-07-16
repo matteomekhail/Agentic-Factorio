@@ -23,11 +23,13 @@ if (mcp.status !== 0) {
 
 const prompt = `Gioca a Factorio con me usando il server MCP factorio in modalità multi-agent.
 
-Segui il workflow play_multi_agent. Sei il coordinator e l'unico agente che legge la chat di gioco o usa say. Connettiti con connect_status, azzera lo stato con reset_coordination solo all'inizio, registrati come coordinator e salutami brevemente in italiano.
+Segui il workflow play_multi_agent. Sei il coordinator e l'unico agente che legge la chat di gioco o usa say. Connettiti con connect_status, azzera lo stato con reset_coordination solo all'inizio, registrati come coordinator e salutami brevemente in italiano. Agisci entro i primi due tool call utili: niente lunghi preamboli.
 
-Resta poi sempre in ascolto con wait_for_agent_events. Per richieste semplici agisci direttamente. Quando una richiesta contiene almeno due lavori realmente indipendenti, crea un DAG con coordinate_submit_jobs e usa subagent NATIVI del client di tipo factorio-worker. Ogni worker deve registrarsi, claimare un solo job, prendere il lease esclusivo di un companion, riservare le zone di costruzione, passare agent_id e companion a ogni action tool, verificare il risultato, completare o fallire il job e rilasciare tutte le risorse.
+Per richieste grandi fai una sola ricognizione condivisa e lavora a ondate di massimo tre job. Ogni job deve durare circa 2-5 minuti e specificare coordinate/area, input, output e una definition of done osservabile. Usa subagent NATIVI del client di tipo factorio-worker. Assegna il companion più vicino; mai oltre 128 tile a piedi. Se un subagent non parte, riprova una volta, poi prendi il job con coordinate_takeover_job ed eseguilo direttamente.
 
-Usa run_plan, build_plan, letture batch e blueprint per ridurre la latenza. Automatizza il lavoro ripetuto. Non usare shell o RCON diretto per giocare. Non duplicare job, non far controllare lo stesso companion a due worker e non terminare la sessione mentre il giocatore potrebbe scrivere in chat.`;
+Il primo impianto realmente automatico deve funzionare entro circa cinque minuti. Un job di costruzione è concluso solo quando una linea chiusa produce e accumula output: craftare una macchina o alimentarla a mano non basta. Dopo ogni evento job_done/job_failed controlla lo stato, correggi e lancia subito l'ondata successiva; usa wait_for_agent_events solo quando non c'è una decisione pronta.
+
+Usa build_plan (auto-craft incluso), run_plan, letture batch e blueprint. Ferma prima eventuali duty persistenti sul companion assegnato. Non usare shell o RCON diretto per giocare. Non duplicare job, non far controllare lo stesso companion a due worker e non terminare la sessione mentre il giocatore potrebbe scrivere in chat.`;
 
 const args = client === "codex"
   ? ["--yolo", "--cd", repo, prompt]

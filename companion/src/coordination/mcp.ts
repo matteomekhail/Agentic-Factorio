@@ -36,7 +36,7 @@ export function registerCoordinationTools(
   }));
 
   server.registerTool("coordinate_submit_jobs", {
-    description: "Coordinator only: atomically submit a dependency graph of independent Factorio jobs. Dependencies may reference keys from the same call.",
+    description: "Coordinator only: atomically submit a dependency graph of bounded Factorio jobs. Each job should produce one independently verifiable result in about 2-5 minutes, with exact area/input/output and a concrete definition of done. Dependencies may reference keys from the same call.",
     inputSchema: z.object({
       coordinator_id: z.string().min(8),
       jobs: z.array(z.object({
@@ -67,8 +67,16 @@ export function registerCoordinationTools(
     return job ? JSON.stringify({ job }) : "no_job";
   }));
 
+  server.registerTool("coordinate_takeover_job", {
+    description: "Coordinator fallback: claim one specific ready job yourself when a native subagent could not start. Execute it directly, then call coordinate_complete_job or coordinate_fail_job with the coordinator id. Never steal a job already claimed by a live worker.",
+    inputSchema: z.object({ coordinator_id: z.string().min(8), job_id: z.string().min(8) }),
+  }, async ({ coordinator_id, job_id }) => attempt(async () => {
+    const job = await broker.takeoverJob(coordinator_id, job_id);
+    return JSON.stringify({ job });
+  }));
+
   server.registerTool("coordinate_complete_job", {
-    description: "Worker only: mark its claimed job complete and return a concise result to the coordinator.",
+    description: "Mark your claimed job complete and return concise verification evidence. Normally worker-only; a coordinator may use it after coordinate_takeover_job.",
     inputSchema: z.object({ agent_id: z.string().min(8), job_id: z.string().min(8), result: z.string().min(1).max(4000) }),
   }, async ({ agent_id, job_id, result: summary }) => attempt(async () => {
     const job = await broker.finishJob(agent_id, job_id, summary);
@@ -76,7 +84,7 @@ export function registerCoordinationTools(
   }));
 
   server.registerTool("coordinate_fail_job", {
-    description: "Worker only: fail its claimed job, optionally returning it to the ready queue for another attempt.",
+    description: "Fail your claimed job, optionally returning it to the ready queue. Normally worker-only; a coordinator may use it after coordinate_takeover_job.",
     inputSchema: z.object({ agent_id: z.string().min(8), job_id: z.string().min(8), error: z.string().min(1).max(2000), retry: z.boolean().optional() }),
   }, async ({ agent_id, job_id, error, retry }) => attempt(async () => {
     const job = await broker.failJob(agent_id, job_id, error, retry ?? false);
@@ -141,12 +149,18 @@ export function registerCoordinationTools(
   }));
 
   server.registerTool("wait_for_agent_events", {
-    description: "Coordinated-mode event stream. Coordinators receive player chat and all game events; workers receive only events for companions they lease.",
+    description: "Coordinated-mode event stream. Coordinators receive player chat, game events, and job completion/failure transitions; workers receive only game events for companions they lease. A coordinator must react to job transitions before waiting again.",
     inputSchema: z.object({ agent_id: z.string().min(8), timeout_s: z.number().int().min(1).max(21600).optional() }),
   }, async ({ agent_id, timeout_s }) => attempt(async () => {
     const timeout = timeout_s ?? 30;
-    const bridge = await getBridge();
     let registration = await broker.cursor(agent_id);
+    const readyCoordination = await broker.takeCoordinationEvents(agent_id);
+    if (readyCoordination.length > 0) {
+      return readyCoordination.map((event) =>
+        `[coordination:${event.kind}] ${event.title} (${event.jobId}): ${event.text}`,
+      ).join("\n");
+    }
+    const bridge = await getBridge();
     if (!registration.cursor.initialized) {
       const chat = await bridge.call<GetChatResult>("get_chat", { since_id: 0 });
       const events = await bridge.call<GetEventsResult>("get_events", { since_id: 0 });
@@ -156,6 +170,11 @@ export function registerCoordinationTools(
     const deadline = Date.now() + timeout * 1000;
     while (Date.now() < deadline) {
       const lines: string[] = [];
+      const coordinationEvents = await broker.takeCoordinationEvents(agent_id);
+      lines.push(...coordinationEvents.map((event) =>
+        `[coordination:${event.kind}] ${event.title} (${event.jobId}): ${event.text}`,
+      ));
+      if (lines.length > 0) return lines.join("\n");
       if (registration.agent.role === "coordinator") {
         const chat = await bridge.call<GetChatResult>("get_chat", { since_id: registration.cursor.chatId });
         registration.cursor.chatId = Math.max(registration.cursor.chatId, chat.last_id);

@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   const expected = ["say", "look_around", "walk_to", "mine", "place_entity", "craft_items",
     "insert_items", "extract_items", "set_recipe", "rotate_entity", "inspect_entity",
     "start_research", "follow_player", "respawn", "stop", "connect_status", "read_chat", "wait_for_chat",
-    "register_factorio_agent", "coordinate_submit_jobs", "coordinate_claim_job", "lease_companion",
+    "register_factorio_agent", "coordinate_submit_jobs", "coordinate_claim_job", "coordinate_takeover_job", "lease_companion",
     "reserve_build_area", "wait_for_agent_events", "coordination_status"];
   const missing = expected.filter((n) => !names.includes(n));
   check("tools/list", missing.length === 0, missing.length ? `missing: ${missing.join(",")}` : `${names.length} tools`);
@@ -98,6 +98,28 @@ async function main(): Promise<void> {
       arguments: { coordinator_id: coordinatorId, jobs: [{ key: "scan", title: "Scan", instructions: "Inspect the base" }] },
     });
     check("submit coordinated job", !submitted.result?.isError, submitted.result?.content?.[0]?.text?.slice(0, 100));
+    const workerRegistration = await request("tools/call", {
+      name: "register_factorio_agent",
+      arguments: { name: "Smoke worker", role: "worker" },
+    });
+    const workerText = workerRegistration.result?.content?.[0]?.text ?? "";
+    const workerId = workerText.match(/agent_id=(\S+)/)?.[1];
+    const claimed = await request("tools/call", {
+      name: "coordinate_claim_job",
+      arguments: { agent_id: workerId },
+    });
+    const claimedText = claimed.result?.content?.[0]?.text ?? "";
+    const jobId = JSON.parse(claimedText).job.id;
+    await request("tools/call", {
+      name: "coordinate_complete_job",
+      arguments: { agent_id: workerId, job_id: jobId, result: "closed loop verified" },
+    });
+    const wake = await request("tools/call", {
+      name: "wait_for_agent_events",
+      arguments: { agent_id: coordinatorId, timeout_s: 1 },
+    });
+    const wakeText = wake.result?.content?.[0]?.text ?? "";
+    check("job completion wakes coordinator", /coordination:job_done/.test(wakeText), wakeText);
     child.kill();
     console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
     process.exit(failures === 0 ? 0 : 1);
