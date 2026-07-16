@@ -41,6 +41,16 @@ achievements on any save the companion touches).
 
 Something off? `node companion/dist/cli.js doctor` checks config, protocol, mod,
 connection and the selected brain. Add `--json` for a redacted machine-readable report.
+
+Multi-agent gameplay (Codex/Claude native subagents, ready-made prompt):
+
+```sh
+npm run play:codex-agents
+npm run play:claude-agents
+```
+
+See [docs/MULTI-AGENT.md](docs/MULTI-AGENT.md). These launchers deliberately use
+the clients' unrestricted-permission modes; run them only in a trusted checkout.
 Type `!stop` in game chat at any time to instantly cancel everything the companion is doing.
 
 ## The three brain modes

@@ -8,6 +8,9 @@ const companionField = z.string().max(20).optional().describe(
 const backgroundField = z.boolean().optional().describe(
   "action tasks only: true = return after enqueue and report the outcome later as an [event]",
 );
+const agentIdField = z.string().min(8).max(100).optional().describe(
+  "multi-agent mode: id returned by register_factorio_agent; workers need a companion lease for actions",
+);
 
 function errorResult(error: unknown): string {
   if (error instanceof z.ZodError) {
@@ -25,7 +28,11 @@ export function defineTool<S extends z.ZodObject<z.ZodRawShape>>(
   schema: S,
   run: (bridge: Bridge, args: z.infer<S>) => Promise<ToolOutput>,
 ): ToolSpec {
-  const fullSchema = schema.extend({ companion: companionField, background: backgroundField });
+  const fullSchema = schema.extend({
+    companion: companionField,
+    background: backgroundField,
+    agent_id: agentIdField,
+  });
   return {
     name,
     description,

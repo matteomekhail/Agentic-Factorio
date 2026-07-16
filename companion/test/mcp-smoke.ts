@@ -8,6 +8,7 @@ import path from "node:path";
 const host = process.argv[2] ?? "127.0.0.1";
 const port = process.argv[3] ?? "27099";
 const password = process.argv[4] ?? "agentic-it-pass";
+const offline = process.env.MCP_SMOKE_OFFLINE === "1";
 
 const repoCompanion = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -77,13 +78,59 @@ async function main(): Promise<void> {
   const names = tools.map((t) => t.name);
   const expected = ["say", "look_around", "walk_to", "mine", "place_entity", "craft_items",
     "insert_items", "extract_items", "set_recipe", "rotate_entity", "inspect_entity",
-    "start_research", "follow_player", "respawn", "stop", "connect_status", "read_chat", "wait_for_chat"];
+    "start_research", "follow_player", "respawn", "stop", "connect_status", "read_chat", "wait_for_chat",
+    "register_factorio_agent", "coordinate_submit_jobs", "coordinate_claim_job", "lease_companion",
+    "reserve_build_area", "wait_for_agent_events", "coordination_status"];
   const missing = expected.filter((n) => !names.includes(n));
   check("tools/list", missing.length === 0, missing.length ? `missing: ${missing.join(",")}` : `${names.length} tools`);
+
+  if (offline) {
+    await request("tools/call", { name: "reset_coordination", arguments: { confirm: true } });
+    const registered = await request("tools/call", {
+      name: "register_factorio_agent",
+      arguments: { name: "Smoke coordinator", role: "coordinator" },
+    });
+    const registrationText = registered.result?.content?.[0]?.text ?? "";
+    const coordinatorId = registrationText.match(/agent_id=(\S+)/)?.[1];
+    check("register coordinator", !!coordinatorId, registrationText);
+    const submitted = await request("tools/call", {
+      name: "coordinate_submit_jobs",
+      arguments: { coordinator_id: coordinatorId, jobs: [{ key: "scan", title: "Scan", instructions: "Inspect the base" }] },
+    });
+    check("submit coordinated job", !submitted.result?.isError, submitted.result?.content?.[0]?.text?.slice(0, 100));
+    child.kill();
+    console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
+    process.exit(failures === 0 ? 0 : 1);
+  }
 
   const status = await request("tools/call", { name: "connect_status", arguments: {} }, 60_000);
   const text = status.result?.content?.map((c: any) => c.text).join(" ") ?? JSON.stringify(status);
   check("connect_status", !status.result?.isError && /2\.0\.77|companion/i.test(text), text.slice(0, 140));
+
+  await request("tools/call", { name: "reset_coordination", arguments: { confirm: true } });
+  const workerRegistration = await request("tools/call", {
+    name: "register_factorio_agent",
+    arguments: { name: "Live smoke worker", role: "worker", capabilities: ["smoke"] },
+  });
+  const workerText = workerRegistration.result?.content?.[0]?.text ?? "";
+  const workerId = workerText.match(/agent_id=(\S+)/)?.[1];
+  check("register live worker", !!workerId, workerText);
+  const denied = await request("tools/call", {
+    name: "respawn",
+    arguments: { name: "AI", companion: "AI", agent_id: workerId },
+  });
+  check("action denied without lease", denied.result?.isError === true, denied.result?.content?.[0]?.text?.slice(0, 100));
+  const lease = await request("tools/call", {
+    name: "lease_companion",
+    arguments: { agent_id: workerId, companion: "AI", ttl_s: 60 },
+  });
+  check("lease companion", !lease.result?.isError, lease.result?.content?.[0]?.text?.slice(0, 100));
+  const allowed = await request("tools/call", {
+    name: "respawn",
+    arguments: { name: "AI", companion: "AI", agent_id: workerId },
+  });
+  check("action allowed with lease", !allowed.result?.isError, allowed.result?.content?.[0]?.text?.slice(0, 100));
+  await request("tools/call", { name: "release_companion", arguments: { agent_id: workerId, companion: "AI" } });
 
   const say = await request("tools/call", { name: "say", arguments: { text: "MCP smoke test says hi" } }, 30_000);
   check("say via MCP", !say.result?.isError, JSON.stringify(say.result?.content)?.slice(0, 100));

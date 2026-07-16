@@ -25,10 +25,7 @@ DISCIPLINE:
 - Fight only on request or to protect the factory. Deconstruct only after explicit recent consent with confirm=true.
 - [event] and [routine] messages are system stimuli, not player speech. React only when useful. !stop cancels everything and must never be undone without a new request.`;
 
-export const MCP_GAMEPLAY_INSTRUCTIONS = `You control the player's Factorio companion crew through these tools.
-First call connect_status, greet via say, then listen with wait_for_chat. After every empty wait, call wait_for_chat again without narration. React to chat and [event] lines. The in-game companions are the parallel workers; do not use client-native subagents for gameplay.
-
-${CORE_GAMEPLAY_POLICY}`;
+export const MCP_GAMEPLAY_INSTRUCTIONS = `Factorio control plus portable multi-agent coordination. For a simple request, use connect_status and normal tools. For 2+ independent jobs, the main client agent is coordinator: register_factorio_agent(role="coordinator"), split work with coordinate_submit_jobs, then spawn native client subagents. Each worker registers role="worker", claims one job, leases one in-game companion, passes agent_id+companion to action tools, completes the job, and releases leases/reservations. Only the coordinator reads player chat and uses say. Use wait_for_agent_events, not wait_for_chat, in coordinated mode. Never let two workers control one companion or build in overlapping unreserved areas. Batch reads/actions and automate repeated work. Use the play_multi_agent prompt for the full workflow.`;
 
 export const CODEX_BRAIN_INSTRUCTIONS = `This process starts one Codex turn for each batch of Factorio chat. Complete the request with factorio MCP tools, then end the turn. Never call wait_for_chat or read_chat: the local companion app owns listening. Plain assistant text is invisible to the player, so communicate only through say.
 

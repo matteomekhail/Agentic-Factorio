@@ -12,6 +12,8 @@ import { Bridge } from "../bridge.js";
 import { MCP_GAMEPLAY_INSTRUCTIONS } from "../agent/policy.js";
 import { RconClient } from "../rcon.js";
 import { assertProtocolCompatibility } from "../protocol/contract.js";
+import { CoordinationBroker } from "../coordination/broker.js";
+import { registerCoordinationTools } from "../coordination/mcp.js";
 import {
   formatState,
   toolSpecs,
@@ -86,13 +88,20 @@ function formatChatLines(messages: ChatMessage[]): string {
   return messages.map((m) => `[#${m.id}] <${m.player}> ${m.text}`).join("\n");
 }
 
+const READ_ONLY_GAME_TOOLS = new Set([
+  "look_around", "view_area", "check_inventory", "inspect_entity", "scan_area",
+  "describe_prototype", "analyze_factory", "can_place", "find_buildable_area",
+  "list_blueprints", "read_blueprint", "list_trains",
+]);
+
 export async function runMcpServer(opts: McpServerOptions): Promise<void> {
   const server = new McpServer(
-    { name: "agentic-factorio", version: "0.1.0" },
+    { name: "agentic-factorio", version: "0.2.0" },
     {
       instructions: MCP_GAMEPLAY_INSTRUCTIONS,
     },
   );
+  const broker = new CoordinationBroker(`${opts.host}-${opts.port}`);
 
   // Lazy game connection: nothing is contacted until a tool actually needs it,
   // so the MCP server starts fine before Factorio does.
@@ -143,6 +152,8 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
     return bridge;
   }
 
+  registerCoordinationTools(server, broker, getBridge);
+
   // All shared agent tools. The SDK converts the zod schemas to JSON Schema
   // for tools/list and validates tools/call arguments against them; the spec
   // itself re-parses and returns "Error: ..." strings instead of throwing.
@@ -157,7 +168,17 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         } catch (e) {
           return toResult(errText(e));
         }
-        const output = await spec.execute(bridge, (args ?? {}) as Record<string, unknown>);
+        const record = (args ?? {}) as Record<string, unknown>;
+        const agentId = typeof record.agent_id === "string" ? record.agent_id : undefined;
+        const companion = typeof record.companion === "string" ? record.companion : "AI";
+        if (agentId && !READ_ONLY_GAME_TOOLS.has(spec.name)) {
+          try {
+            await broker.assertMayAct(agentId, companion);
+          } catch (e) {
+            return toResult(errText(e));
+          }
+        }
+        const output = await spec.execute(bridge, record);
         const clientName = server.server.getClientVersion()?.name ?? "";
         return toResult(externalizeImageIfNeeded(output, clientName));
       },
@@ -319,13 +340,36 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
               "Gioca a Factorio con me. Segui le instructions del server MCP factorio: " +
               "connect_status, saluto in chat via say (in italiano), poi parcheggiati in wait_for_chat " +
               "con timeout_s 21600 (6 ore: non costa nulla da fermo e ti sveglia all'istante) senza scrivere nulla tra un'attesa vuota e l'altra. " +
-              "I subagent sono i COMPANION nel gioco (respawn {name:...}, parametro companion, " +
-              "max 4) — mai agent nativi del client, mai shell o RCON diretto. Parallelizza di " +
-              "default con background:true e reagisci agli [event]. Passi dipendenti sullo " +
+              "Per questa sessione usa un solo agent client: parallelizza con i COMPANION nel " +
+              "gioco (respawn {name:...}, parametro companion, max 4), background:true e reagisci agli [event]. Passi dipendenti sullo " +
               "stesso companion. Parla col giocatore solo via say, 1-2 frasi.",
           },
         },
       ],
+    }),
+  );
+
+  server.registerPrompt(
+    "play_multi_agent",
+    {
+      title: "Gioca a Factorio con subagent",
+      description: "Avvia un coordinator e worker nativi Codex/Claude che condividono job, companion ed eventi tramite MCP",
+    },
+    () => ({
+      messages: [{
+        role: "user" as const,
+        content: {
+          type: "text" as const,
+          text:
+            "Gioca a Factorio in modalità multi-agent. Tu sei il coordinator: chiama connect_status, " +
+            "reset_coordination {confirm:true}, register_factorio_agent con role=coordinator, poi saluta via say. " +
+            "Quando il giocatore chiede 2+ lavori indipendenti, crea il DAG con coordinate_submit_jobs e " +
+            "spawna subagent NATIVI del client. Ogni worker deve registrarsi, claimare un job, fare lease_companion, " +
+            "riservare l'area se costruisce, passare agent_id e companion a ogni action tool, completare/fallire il job " +
+            "e rilasciare tutto. Solo tu leggi la chat, con wait_for_agent_events, e solo tu usi say. " +
+            "Non delegare richieste banali: il costo di coordinamento deve essere giustificato.",
+        },
+      }],
     }),
   );
 
