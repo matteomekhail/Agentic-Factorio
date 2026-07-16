@@ -979,6 +979,28 @@ export function toolSpecs(): ToolSpec[] {
     ),
 
     spec(
+      "build_blueprint",
+      "Build a WHOLE blueprint from the reachable library (see list_blueprints — your starter books count) in ONE call: give the label and the anchor where the print's top-left entity goes, and the companion walks and places every entity itself, recipes included — you never read or copy the entity list. Prepare first: read_blueprint {label, limit:1} returns the full item bill and footprint; find_buildable_area picks a clear anchor; steps missing items or blocked ground fail individually and are listed in the outcome. Up to 1000 entities. Prefer background:true — big prints take minutes.",
+      z.object({
+        label: z.string().min(1).describe("blueprint label (case-insensitive, partial ok)"),
+        book: z.string().optional().describe("only look inside books whose name matches this"),
+        anchor_x: z.number().describe("map x where the print's top-left entity goes"),
+        anchor_y: z.number().describe("map y where the print's top-left entity goes"),
+        stop_on_error: z.boolean().optional().describe("abort at the first failed step (default: skip and continue)"),
+      }),
+      async (bridge, { label, book, anchor_x, anchor_y, stop_on_error }) => {
+        const task: Task = {
+          type: "build_blueprint",
+          label,
+          book,
+          anchor: { x: anchor_x, y: anchor_y },
+          stop_on_error,
+        };
+        return bridge.enqueueAndWait(task, { timeoutMs: 1_800_000 });
+      },
+    ),
+
+    spec(
       "run_plan",
       "Queue a whole SEQUENCE of actions on one companion in a single call — the FAST way to play. Steps run in order on that companion's lane (auto-walking included) while you move on immediately; ONE [event] arrives when the last step finishes. If a step fails you get one failure event and the rest of the plan is cancelled (dependent steps would fail anyway). Think a few moves ahead and issue one run_plan per companion instead of many single tool calls: craft a batch, then insert it somewhere, then extract the product, then mine — all in one call. For PLACING multiple entities use build_plan (per-step placement validation); everything else chains here.",
       z.object({
@@ -1054,12 +1076,17 @@ export function toolSpecs(): ToolSpec[] {
               ? { ...rest, target: { x, y } }
               : { ...rest, ...(s.type === "place" ? { position: { x, y } } : {}) };
           try {
-            const res = await bridge.call<{ task_id: number }>("enqueue", {
+            const res = await bridge.call<{ task_id: number; cancelled?: boolean }>("enqueue", {
               task,
               background: true,
               quiet: i < steps.length - 1, // one completion event for the whole plan
               chain,
             });
+            if (res.cancelled) {
+              // An earlier step already ran AND failed while we were still
+              // queueing — the mod cancels the rest of the chain.
+              return `Queued ${queued.length} step(s), but an earlier step of this plan already failed — the remaining steps were skipped. The failure [event] explains why.`;
+            }
             queued.push(res.task_id);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

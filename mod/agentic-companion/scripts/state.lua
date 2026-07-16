@@ -10,6 +10,8 @@ function M.init()
   storage.tasks.next_id = storage.tasks.next_id or 1
   storage.tasks.records = storage.tasks.records or {}
   storage.tasks.by_companion = storage.tasks.by_companion or {}
+  -- chain id -> failure tick: late enqueues of a failed plan cancel instantly
+  storage.tasks.failed_chains = storage.tasks.failed_chains or {}
   if storage.tasks.queue or storage.tasks.active then
     -- migrate the pre-multi-companion single lane
     storage.tasks.by_companion["AI"] = {

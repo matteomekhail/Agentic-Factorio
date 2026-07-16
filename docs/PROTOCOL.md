@@ -132,7 +132,9 @@ suppresses the success event (failures always report) — the `run_plan` tool ma
 but the last quiet so a whole plan wakes the brain once. `chain: "<id>"`: when a task of a
 chain fails, the remaining queued tasks with the same chain id are cancelled (detail
 "skipped: an earlier step of the same plan failed"), so a broken plan produces exactly one
-failure event instead of a cascade.
+failure event instead of a cascade. Failed chain ids are remembered (~5 min): a fast failure
+can beat the remaining enqueue RPCs, so late enqueues of a failed chain are cancelled at
+enqueue time — the response then carries `cancelled: true` and the task never runs.
 
 ### `get_task` — `{ task_id }` → `{ status: "queued"|"running"|"done"|"failed"|"cancelled", detail }`
 
@@ -159,6 +161,13 @@ everything else → `reach_distance`.
                                                               // auto-finds nearest matches within 80 tiles,
                                                               // walks, mines, moves to next entity when exhausted
 { "type":"place", "item":"burner-mining-drill", "position":{x,y}, "direction":0? }  // 16-way 0..15
+{ "type":"build_blueprint", "label":"...", "book":"..."?, "anchor":{x,y}, "stop_on_error":false? }
+                                                              // builds a whole REACHABLE print (starter
+                                                              // books, inventories, cursor) at the anchor:
+                                                              // resolution/normalization in blueprint.lua,
+                                                              // then build_plan's tick machinery; max 1000
+                                                              // entities; step.entity overrides the item's
+                                                              // place_result (rail item -> curved segments)
 { "type":"craft", "recipe":"iron-gear-wheel", "count":1? }    // max 100; uses the character crafting queue
 { "type":"insert", "target":{x,y}, "items":{"coal":10} }      // companion inventory → entity (partial ok)
 { "type":"extract", "target":{x,y}, "items":{"iron-plate":50}? , "all":true? }  // entity → companion

@@ -31,6 +31,9 @@ local function malformed(step)
   if step.direction ~= nil and type(step.direction) ~= "number" then
     return "direction must be a number (16-way: 0=N, 4=E, 8=S, 12=W)"
   end
+  if step.entity ~= nil and type(step.entity) ~= "string" then
+    return "entity must be an entity name string"
+  end
   if step.recipe ~= nil and type(step.recipe) ~= "string" then
     return "recipe must be a recipe name string"
   end
@@ -255,8 +258,16 @@ function M.tick(task)
   end
   if reached ~= "ok" then return nil end
 
+  -- step.entity overrides the item's place_result: one item can place several
+  -- entities (the rail item also places curved segments — blueprint builds
+  -- must create the exact entity the print recorded).
+  local entity_name = step.entity or place_result.name
+  if step.entity and not prototypes.entity[step.entity] then
+    return advance(task, false, "no entity called '" .. step.entity .. "'")
+  end
+
   local can_place = c.surface.can_place_entity({
-    name = place_result.name,
+    name = entity_name,
     position = step.position,
     direction = step.direction,
     force = c.force,
@@ -268,7 +279,7 @@ function M.tick(task)
   end
 
   local built = c.surface.create_entity({
-    name = place_result.name,
+    name = entity_name,
     position = step.position,
     direction = step.direction,
     force = c.force,
