@@ -75,13 +75,35 @@ local function finish(task, status, detail)
   end
   stop_body()
 
+  -- A failed step of a plan takes its dependent siblings down with it: later
+  -- steps of the same chain are cancelled so the brain gets ONE failure event
+  -- instead of a cascade ("insert the plates" can't work if the craft failed).
+  if status == "failed" and task.chain then
+    local l2 = lane(task.companion or companion.DEFAULT)
+    local kept = {}
+    for _, q in ipairs(l2.queue) do
+      if q.chain == task.chain then
+        storage.tasks.records[q.id] = {
+          status = "cancelled",
+          detail = "skipped: an earlier step of the same plan failed",
+          finished_tick = game.tick,
+        }
+      else
+        kept[#kept + 1] = q
+      end
+    end
+    l2.queue = kept
+  end
+
   -- Background tasks aren't awaited by anyone — report their outcome as a
   -- push event so the brain hears about it. (Awaited tasks already report
-  -- through get_task polling; cancellations stay silent.)
+  -- through get_task polling; cancellations stay silent.) `quiet` suppresses
+  -- the success event — run_plan marks every step but the last quiet, so a
+  -- whole plan wakes the brain once. Failures always report.
   if task.background then
     pcall(function()
       local who = task.companion or companion.DEFAULT
-      if status == "done" then
+      if status == "done" and not task.quiet then
         events.push("task_done", who .. " finished: " .. (detail or "done"),
           { companion = who, task_id = task.id })
       elseif status == "failed" then
@@ -125,6 +147,8 @@ function M.enqueue(params)
   task.status = "queued"
   task.companion = name
   task.background = params.background == true
+  task.quiet = params.quiet == true
+  if params.chain ~= nil then task.chain = tostring(params.chain) end
   local l = lane(name)
   l.queue[#l.queue + 1] = task
   return { task_id = task.id, companion = name }

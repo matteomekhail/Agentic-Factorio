@@ -113,8 +113,14 @@ Details of ONE entity (searched within 1.5 tiles of position):
 ### `start_research` — `{ technology }` →
 `{ queued: true, technology }` — errors if the tech is unknown/already researched.
 
-### `enqueue` — `{ task: <Task>, replace?: false }` → `{ task_id }`
-`replace: true` cancels the queue and active task first.
+### `enqueue` — `{ task: <Task>, replace?: false, background?: false, quiet?: false, chain?: string }` → `{ task_id }`
+`replace: true` cancels the queue and active task first. `background: true` makes the task
+report its outcome as a `task_done`/`task_failed` push event when it finishes. `quiet: true`
+suppresses the success event (failures always report) — the `run_plan` tool marks every step
+but the last quiet so a whole plan wakes the brain once. `chain: "<id>"`: when a task of a
+chain fails, the remaining queued tasks with the same chain id are cancelled (detail
+"skipped: an earlier step of the same plan failed"), so a broken plan produces exactly one
+failure event instead of a cascade.
 
 ### `get_task` — `{ task_id }` → `{ status: "queued"|"running"|"done"|"failed"|"cancelled", detail }`
 
