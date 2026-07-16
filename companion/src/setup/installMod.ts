@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { packageRoot } from "../config.js";
+import { atomicWriteFile } from "./atomic.js";
 
 const MOD_NAME = "agentic-companion";
 
@@ -54,8 +55,20 @@ export function installMod(modsDirPath: string): InstallModResult {
   if (destStat?.isSymbolicLink()) {
     copied = false; // dev setup: the mods dir links straight into the repo
   } else {
-    if (destStat) fs.rmSync(dest, { recursive: true, force: true });
-    fs.cpSync(source, dest, { recursive: true });
+    const stage = path.join(modsDirPath, `.${MOD_NAME}.agentic-stage-${process.pid}`);
+    const old = path.join(modsDirPath, `.${MOD_NAME}.agentic-old-${process.pid}`);
+    fs.rmSync(stage, { recursive: true, force: true });
+    fs.rmSync(old, { recursive: true, force: true });
+    try {
+      fs.cpSync(source, stage, { recursive: true });
+      if (destStat) fs.renameSync(dest, old);
+      fs.renameSync(stage, dest);
+      fs.rmSync(old, { recursive: true, force: true });
+    } catch (error) {
+      fs.rmSync(stage, { recursive: true, force: true });
+      if (!fs.existsSync(dest) && fs.existsSync(old)) fs.renameSync(old, dest);
+      throw error;
+    }
   }
 
   enableInModList(modsDirPath);
@@ -68,8 +81,13 @@ function enableInModList(modsDirPath: string): void {
   try {
     const parsed = JSON.parse(fs.readFileSync(modListPath, "utf8")) as { mods?: ModListEntry[] };
     if (Array.isArray(parsed.mods)) mods = parsed.mods;
-  } catch {
-    // missing or corrupt: rebuild with just base + our mod (Factorio re-adds the rest)
+  } catch (error) {
+    if (fs.existsSync(modListPath)) {
+      throw new Error(
+        `cannot safely update ${modListPath}: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+    // Missing is fine: create the initial list.
   }
   const entry = mods.find((m) => m.name === MOD_NAME);
   if (entry) {
@@ -77,5 +95,5 @@ function enableInModList(modsDirPath: string): void {
   } else {
     mods.push({ name: MOD_NAME, enabled: true });
   }
-  fs.writeFileSync(modListPath, `${JSON.stringify({ mods }, null, 2)}\n`, "utf8");
+  atomicWriteFile(modListPath, `${JSON.stringify({ mods }, null, 2)}\n`);
 }

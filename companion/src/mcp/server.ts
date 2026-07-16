@@ -9,13 +9,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { Bridge } from "../bridge.js";
+import { MCP_GAMEPLAY_INSTRUCTIONS } from "../agent/policy.js";
 import { RconClient } from "../rcon.js";
+import { assertProtocolCompatibility } from "../protocol/contract.js";
 import {
   formatState,
-  isImageToolOutput,
   toolSpecs,
-  type ToolOutput,
 } from "../tools/definitions.js";
+import { isImageToolOutput, type ToolOutput } from "../tools/adapter.js";
 import {
   asArray,
   type ChatMessage,
@@ -89,42 +90,7 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
   const server = new McpServer(
     { name: "agentic-factorio", version: "0.1.0" },
     {
-      instructions:
-        "You drive a CREW of up to 4 AI companion characters inside the player's running " +
-        "Factorio game. When asked to play (even just 'gioca a factorio'), do this:\n" +
-        "1. connect_status first; greet the player in game chat with say (mirror their " +
-        "language), then LISTEN: park in wait_for_chat with timeout_s 21600 (6h) in a loop, writing NO " +
-        "text between empty waits — just call it again. React to chat and to [event] lines " +
-        "(attacks, deaths, research done, background task outcomes, supply warnings).\n" +
-        "2. CREW: the 'subagents' here are in-game companions, NOT client-native agents. " +
-        'Create them with respawn {name:"Anna"} (max 4) and address each via the companion ' +
-        'parameter every tool accepts. Parallelize by default: 2+ independent jobs → different ' +
-        "companions, dispatched with background:true (returns instantly; the outcome arrives " +
-        "as an [event]). Await a tool only when your next step depends on its result; keep " +
-        "dependent steps on ONE companion so its queue runs them in order. An idle companion " +
-        "is wasted hands — give it a duty (defend_area, keep_fueled, follow_player). " +
-        "SPEED: every tool call costs thinking time — plan a few moves ahead and batch: " +
-        "run_plan chains craft/insert/extract/mine/place steps on one companion in ONE call " +
-        "(one [event] at the end; a failed step cancels the rest), build_plan batches " +
-        "construction, inspect_entity takes targets (16 machines/call), can_place takes " +
-        "placements (24 spots/call), describe_prototype takes 10 names. Ten single calls " +
-        "is a smell.\n" +
-        "3. AUTOMATION FIRST: this is Factorio — manual labor is only for bootstrapping. If " +
-        "you repeat the same manual action twice (feeding a furnace, hand-crafting the same " +
-        "item, ferrying goods), stop and BUILD the automation instead: burner drill facing a " +
-        "furnace feeds it forever; then inserters/belts/chests; then electricity and " +
-        "assemblers with set_recipe. When the player asks for items, prefer building " +
-        "production that keeps making them, then deliver the first batch.\n" +
-        "4. VISION: view_area returns a real screenshot. Use it when the player explicitly " +
-        "asks you to look, when a complex layout or orientation is visually ambiguous, or " +
-        "to verify a substantial build. Do not call it routinely: look_around, scan_area and " +
-        "inspect_entity remain authoritative for exact coordinates, counts and machine state.\n" +
-        "5. DISCIPLINE: use ONLY these factorio tools — never shell/exec/raw RCON (raw /c " +
-        "commands spam every player's chat; inspect_entity reads belts and pipes, " +
-        "analyze_factory diagnoses the whole factory in one call). Speak to the player ONLY " +
-        "via say, 1-2 short sentences; announce long jobs before starting and summarize " +
-        "outcomes. If a tool fails, say so honestly and try ONE alternative. '!stop' from the " +
-        "player force-cancels everything.",
+      instructions: MCP_GAMEPLAY_INSTRUCTIONS,
     },
   );
 
@@ -163,6 +129,7 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
     const bridge = new Bridge(rcon);
     try {
       await bridge.unlock();
+      assertProtocolCompatibility(await bridge.call<PingResult>("ping"));
     } catch (e) {
       rcon.close();
       throw e instanceof Error ? e : new Error(String(e));

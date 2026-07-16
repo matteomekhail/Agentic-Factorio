@@ -9,23 +9,13 @@ import path from "node:path";
 import { Bridge } from "../bridge.js";
 import { log } from "../log.js";
 import type { ChatMessage } from "../types.js";
+import { CODEX_BRAIN_INSTRUCTIONS } from "./policy.js";
+import { formatState } from "../tools/definitions.js";
+import type { GetStateResult } from "../types.js";
 
 const TURN_TIMEOUT_MS = 20 * 60 * 1000;
 
-const FIRST_TURN_INSTRUCTIONS = `Sei il cervello di un personaggio "companion" dentro Factorio, guidato dai tool MCP "factorio".
-Regole, in ordine di importanza:
-1. Questo processo ti invoca UNA volta per ogni messaggio del giocatore: fai quello che chiede usando i tool factorio, poi TERMINA il turno. NON chiamare MAI wait_for_chat o read_chat — all'ascolto della chat pensa l'app che ti invoca.
-2. Parli col giocatore SOLO tramite il tool say (1-2 frasi, in italiano, tono da compagno di squadra). Il testo fuori dai tool non viene visto da nessuno.
-3. Conferma con say prima dei task lunghi, e riassumi con say quando hai finito o se qualcosa fallisce.
-4. Usa solo i tool factorio: niente shell, niente file, niente altro.
-5. Se la richiesta è ambigua, chiedi chiarimenti via say e termina il turno.
-6. I messaggi da "[event]" non sono il giocatore: sono avvisi dal gioco (attacchi, morte, ricerca finita, scorte esaurite). Reagisci con buon senso e, se serve informare, usa say — breve.
-7. AUTOMAZIONE PRIMA DI TUTTO — è Factorio, la fabbrica deve crescere: il lavoro manuale serve solo per partire. Se ti accorgi di ripetere due volte la stessa azione manuale (nutrire un forno, craftare a mano lo stesso oggetto, fare la spola con le risorse), FERMATI e costruisci l'automazione: trivella rivolta verso il forno (lo alimenta da sola), poi inserter+nastri+casse, poi elettricità e assemblatori. Crafta a mano solo i pezzi di bootstrap. Se il giocatore chiede oggetti, preferisci costruire la produzione che continua a farli, poi consegna il primo lotto.
-8. SQUADRA — parallelizza di DEFAULT: se la richiesta contiene 2+ lavori indipendenti, dividili tra companion diversi (respawn {name:"Anna"} ne crea, max 4 — fallo proattivamente). Usa background:true sui tool d'azione per smistare gli ordini senza aspettare: il risultato arriva come [event]. Aspetta (senza background) solo quando il passo successivo dipende dal risultato. Passi dipendenti = stesso companion (la sua coda li esegue in ordine). Un companion IDLE è mani sprecate: dagli un turno di servizio. Se il giocatore chiama qualcuno per nome, instrada l'ordine a quel companion.
-9. VISIONE — view_area ti mostra uno screenshot reale. Usalo quando il giocatore chiede esplicitamente di guardare, quando un layout complesso/orientamento è ambiguo, o per verificare visivamente una costruzione importante. Non usarlo a ogni turno: per coordinate, quantità, inventari e stato esatto restano autorevoli look_around, scan_area e inspect_entity.
-10. VELOCITÀ — ogni chiamata tool costa secondi di ragionamento: non gocciolare azioni singole. Pensa qualche mossa avanti e usa run_plan per accodare in UNA chiamata una sequenza di craft/insert/extract/mine/place/walk su un companion (un solo [event] a fine piano; un passo fallito cancella il resto). build_plan fa lo stesso per le costruzioni. Anche in LETTURA: inspect_entity accetta targets (fino a 16 macchine in una chiamata), can_place accetta placements (fino a 24 posizioni), describe_prototype fino a 10 nomi. Azioni singole solo quando la decisione successiva dipende davvero dal risultato.
-
-Messaggi dal gioco:`;
+const FIRST_TURN_INSTRUCTIONS = `${CODEX_BRAIN_INSTRUCTIONS}\n\nMessages from the game:`;
 
 export interface CodexBrainOptions {
   cwd?: string;
@@ -42,6 +32,7 @@ export class CodexBrain {
   private sessionId: string | null = null;
   private inbox: ChatMessage[] = [];
   private running = false;
+  private drainScheduled = false;
   private proc: ChildProcess | null = null;
   private disposed = false;
 
@@ -81,7 +72,7 @@ export class CodexBrain {
   onEvent(event: { tick: number; text: string }): void {
     log.info(`game event: ${event.text}`);
     this.inbox.push({ id: 0, tick: event.tick, player: "[event]", text: event.text });
-    void this.drain();
+    this.scheduleDrain();
   }
 
   onChat(msg: ChatMessage): void {
@@ -91,7 +82,7 @@ export class CodexBrain {
       return;
     }
     this.inbox.push(msg);
-    void this.drain();
+    this.scheduleDrain();
   }
 
   dispose(): void {
@@ -111,6 +102,15 @@ export class CodexBrain {
     }
   }
 
+  private scheduleDrain(): void {
+    if (this.drainScheduled) return;
+    this.drainScheduled = true;
+    queueMicrotask(() => {
+      this.drainScheduled = false;
+      void this.drain();
+    });
+  }
+
   private async drain(): Promise<void> {
     if (this.running) return;
     this.running = true;
@@ -126,9 +126,11 @@ export class CodexBrain {
 
   private async runTurn(batch: ChatMessage[], isRetry = false): Promise<void> {
     const chatLines = batch.map((m) => `<${m.player}> ${m.text}`).join("\n");
+    const state = await this.bridge.call<GetStateResult>("get_state", {}).catch(() => null);
+    const context = state ? `Current game state (already fresh; do not re-read it without a reason):\n${formatState(state)}\n\n` : "";
     const prompt = this.sessionId
-      ? `Nuovi messaggi dal gioco:\n${chatLines}`
-      : `${FIRST_TURN_INSTRUCTIONS}\n${chatLines}`;
+      ? `${context}New messages from the game:\n${chatLines}`
+      : `${FIRST_TURN_INSTRUCTIONS}\n${context}${chatLines}`;
 
     const wasResume = this.sessionId !== null;
     const args = this.sessionId

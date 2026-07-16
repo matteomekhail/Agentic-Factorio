@@ -1,4 +1,9 @@
-# Mod ↔ Companion protocol (v2 — full feature set)
+# Mod ↔ Companion protocol (v3 — executable contract)
+
+The runtime method manifest and envelope validator live in
+`companion/src/protocol/contract.ts`. A conformance test verifies that every
+method registered by the Lua mod appears in that manifest. `ping` returns
+`protocol_version: 3`; incompatible clients must fail with an actionable error.
 
 This file is the **single source of truth** for the JSON contract between the Factorio mod
 (`mod/agentic-companion`) and the companion app (`companion/`). Both sides must conform to it.
@@ -36,7 +41,7 @@ full `{ok, data}` JSON before parsing. Outbox entries are pruned after 5 minutes
 ## Methods
 
 ### `ping` — `{}` →
-`{ mod_version, factorio_version, tick, companion_exists }`
+`{ protocol_version, mod_version, factorio_version, tick, companion_exists }`
 
 ### `echo` — `{ "size": 5000 }` →
 `{ "data": "xxxx…" }` (size capped at 200000). Debug/chunk-test helper.

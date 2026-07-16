@@ -12,8 +12,9 @@ import { runMcpServer } from "./mcp/server.js";
 import { ChatPoller } from "./poller.js";
 import { RconClient } from "./rcon.js";
 import { runWizard } from "./setup/wizard.js";
-import { buildTools } from "./tools/definitions.js";
+import { buildTools } from "./tools/adapter.js";
 import type { PingResult, SpawnResult } from "./types.js";
+import { assertProtocolCompatibility } from "./protocol/contract.js";
 
 const HELP = `agentic-factorio — an AI companion for your Factorio world
 
@@ -34,6 +35,7 @@ Options:
   --model <id>             model id for your provider (default: Claude Sonnet)
   --proactive <min>        check in on the factory every N minutes, speak only when needed
   --fresh                  start with a blank memory (ignore the saved session)
+  --json                   doctor: emit a redacted machine-readable report
 
 Provider keys: OPENROUTER_API_KEY (recommended), ANTHROPIC_API_KEY or OPENAI_API_KEY.
 No key? Use your Claude Code / Codex subscription: run \`agentic-factorio setup\` and
@@ -103,6 +105,7 @@ async function play(settings: Settings, fresh: boolean, brainKind: string): Prom
   const bridge = new Bridge(rcon);
   await bridge.unlock();
   const ping = await bridge.call<PingResult>("ping");
+  assertProtocolCompatibility(ping);
   log.info(`connected — Factorio ${ping.factorio_version}, mod v${ping.mod_version}, brain ${label}`);
 
   const spawned = await bridge.call<SpawnResult>("spawn_companion", {});
@@ -178,6 +181,7 @@ async function main(): Promise<void> {
       proactive: { type: "string" },
       fresh: { type: "boolean" },
       help: { type: "boolean", short: "h" },
+      json: { type: "boolean" },
     },
     allowPositionals: true,
   });
@@ -202,12 +206,13 @@ async function main(): Promise<void> {
       await runWizard();
       return;
     case "play": {
-      const brainKind = values.brain ?? "api";
+      const settings = resolveSettings(flags);
+      const brainKind = values.brain ?? (settings.brainKind === "codex" ? "codex" : "api");
       if (brainKind !== "api" && brainKind !== "codex") {
         log.error(`unknown --brain '${brainKind}' — use "api" (default) or "codex"`);
         process.exit(1);
       }
-      await play(resolveSettings(flags), values.fresh ?? false, brainKind);
+      await play(settings, values.fresh ?? false, brainKind);
       return;
     }
     case "mcp": {
@@ -227,7 +232,7 @@ async function main(): Promise<void> {
       return;
     }
     case "doctor":
-      await runDoctor(resolveSettings(flags));
+      await runDoctor(resolveSettings(flags), { json: values.json ?? false });
       return;
     default:
       console.log(HELP);
