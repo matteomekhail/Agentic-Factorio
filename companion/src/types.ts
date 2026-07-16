@@ -299,6 +299,8 @@ export type Task =
   | { type: "rotate"; target: Position; direction?: number }
   // Sequential multi-entity build; max 100 steps, failed steps skipped unless stop_on_error.
   | { type: "build_plan"; steps: BuildPlanStep[]; stop_on_error?: boolean }
+  // Build a whole reachable blueprint (starter books etc.) at an anchor; max 1000 entities.
+  | { type: "build_blueprint"; label: string; book?: string; anchor: Position; stop_on_error?: boolean }
   // Consent-gated: the mod fails the task unless confirm is true.
   | {
       type: "deconstruct";

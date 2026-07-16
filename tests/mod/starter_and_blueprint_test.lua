@@ -318,6 +318,31 @@ do
     "isn't a valid blueprint export", "import: outright import failure (1) is rejected cleanly")
 end
 
+do
+  -- resolve_for_build: the full print for the build_blueprint task — every
+  -- entity with the ITEM it consumes (rail item places curved segments).
+  prototypes.entity["curved-rail-a"] = { items_to_place_this = { { name = "rail" } } }
+  local rails = fake_bp("Curva", {
+    { name = "curved-rail-a", position = { x = 3, y = 5 }, direction = 2 },
+    { name = "transport-belt", position = { x = 1, y = 5 } },
+    { name = "modded-thing", position = { x = 0, y = 0 } },
+  })
+  storage.companions.AI.entity.get_main_inventory = function()
+    return { rails }
+  end
+  local r = blueprint.resolve_for_build({ label = "curva" })
+  check(r.label == "Curva" and #r.entities == 2, "resolve_for_build: full valid entity list")
+  check(r.entities[1].name == "curved-rail-a" and r.entities[1].item == "rail",
+    "resolve_for_build: entity name kept separate from the item it consumes")
+  check(r.entities[1].position.x == 2 and r.entities[1].position.y == 0
+      and r.entities[2].position.x == 0,
+    "resolve_for_build: positions relative to the print's top-left entity")
+  check(r.entities[1].direction == 2, "resolve_for_build: direction preserved")
+  check(r.items_needed["rail"] == 1 and r.items_needed["transport-belt"] == 1,
+    "resolve_for_build: item bill by consumed item")
+  check(r.skipped[1] == "modded-thing", "resolve_for_build: unknown entities skipped and reported")
+end
+
 -- ----------------------------------------------------- screenshot.lua tests
 local requested_screenshot
 game.take_screenshot = function(args) requested_screenshot = args end

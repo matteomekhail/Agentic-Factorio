@@ -35,6 +35,7 @@ local runners = {
   drive_to = drive,
   defend_area = require("scripts.actions.defend"),
   build_plan = build_plan,
+  build_blueprint = require("scripts.actions.build_blueprint"),
   deconstruct = deconstruct,
   fight = fight,
 }
@@ -78,7 +79,12 @@ local function finish(task, status, detail)
   -- A failed step of a plan takes its dependent siblings down with it: later
   -- steps of the same chain are cancelled so the brain gets ONE failure event
   -- instead of a cascade ("insert the plates" can't work if the craft failed).
+  -- The chain is also remembered as failed: a fast failure can beat the
+  -- remaining enqueue RPCs to the punch, so late arrivals of the same chain
+  -- are cancelled at enqueue time (see M.enqueue).
   if status == "failed" and task.chain then
+    storage.tasks.failed_chains = storage.tasks.failed_chains or {}
+    storage.tasks.failed_chains[task.chain] = game.tick
     local l2 = lane(task.companion or companion.DEFAULT)
     local kept = {}
     for _, q in ipairs(l2.queue) do
@@ -149,6 +155,19 @@ function M.enqueue(params)
   task.background = params.background == true
   task.quiet = params.quiet == true
   if params.chain ~= nil then task.chain = tostring(params.chain) end
+
+  -- Late arrival of an already-failed plan: cancel silently right here (the
+  -- failure that killed the chain already produced its one event).
+  local fc = storage.tasks.failed_chains
+  if task.chain and fc and fc[task.chain] then
+    t.records[task.id] = {
+      status = "cancelled",
+      detail = "skipped: an earlier step of the same plan failed",
+      finished_tick = game.tick,
+    }
+    return { task_id = task.id, companion = name, cancelled = true }
+  end
+
   local l = lane(name)
   l.queue[#l.queue + 1] = task
   return { task_id = task.id, companion = name }
@@ -222,6 +241,11 @@ local function prune_records()
   for id, rec in pairs(t.records) do
     if game.tick - rec.finished_tick > RECORD_TTL_TICKS then
       t.records[id] = nil
+    end
+  end
+  for chain, tick in pairs(t.failed_chains or {}) do
+    if game.tick - tick > RECORD_TTL_TICKS then
+      t.failed_chains[chain] = nil
     end
   end
 end

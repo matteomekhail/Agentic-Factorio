@@ -30,19 +30,15 @@ local function round1(v)
 end
 
 -- Normalize any holder exposing get_blueprint_entities() (LuaItemStack or
--- LuaRecord) into the shared shape: positions RELATIVE to the whole print's
--- top-left entity, the whole print's item bill, size and skipped names, plus
--- ONE window of entities (offset/limit) so huge prints are read in batches.
--- The origin never moves with the window, so every batch shares one anchor.
-local function decode(holder, label, offset, limit)
+-- LuaRecord): every valid entity with its position RELATIVE to the print's
+-- top-left entity, the item each one consumes (rails: the rail ITEM places
+-- curved segments too, so the entity name travels separately), the whole
+-- print's item bill, footprint and skipped (unknown) names.
+local function normalize(holder)
   local ents = holder.get_blueprint_entities()
   if not ents or #ents == 0 then
     error("the blueprint is empty — no entities to build")
   end
-
-  offset = math.max(math.floor(tonumber(offset) or 0), 0)
-  limit = math.floor(tonumber(limit) or DEFAULT_WINDOW)
-  limit = math.max(1, math.min(limit, MAX_WINDOW))
 
   local min_x, min_y = math.huge, math.huge
   for _, e in ipairs(ents) do
@@ -55,40 +51,67 @@ local function decode(holder, label, offset, limit)
     error("none of the blueprint's entities exist in this game (modded blueprint?)")
   end
 
-  local window, needed, skipped_set = {}, {}, {}
+  local list, needed, skipped_set = {}, {}, {}
   local max_x, max_y = 0, 0
-  local total = 0
   for _, e in ipairs(ents) do
     local proto = prototypes.entity[e.name]
     if not proto then
       skipped_set[e.name] = true
     else
-      total = total + 1
       local pos = { x = round1(e.position.x - min_x), y = round1(e.position.y - min_y) }
       max_x = math.max(max_x, pos.x)
       max_y = math.max(max_y, pos.y)
       local place_items = try(function() return proto.items_to_place_this end)
       local item_name = (place_items and place_items[1] and place_items[1].name) or e.name
       needed[item_name] = (needed[item_name] or 0) + 1
-      if total > offset and #window < limit then
-        window[#window + 1] = {
-          name = e.name,
-          position = pos,
-          direction = e.direction or 0,
-          recipe = e.recipe,
-        }
-      end
+      list[#list + 1] = {
+        name = e.name,
+        item = item_name,
+        position = pos,
+        direction = e.direction or 0,
+        recipe = e.recipe,
+      }
     end
-  end
-
-  if offset >= total then
-    error(string.format("offset %d is past the end — the blueprint has %d entities", offset, total))
   end
 
   local skipped = {}
   for name in pairs(skipped_set) do
     skipped[#skipped + 1] = name
   end
+
+  return {
+    list = list,
+    items_needed = needed,
+    skipped = skipped,
+    size = { w = math.ceil(max_x) + 1, h = math.ceil(max_y) + 1 },
+  }
+end
+
+-- One WINDOW of entities (offset/limit) so huge prints are read in batches;
+-- the origin never moves with the window, so every batch shares one anchor.
+local function decode(holder, label, offset, limit)
+  local norm = normalize(holder)
+  local total = #norm.list
+
+  offset = math.max(math.floor(tonumber(offset) or 0), 0)
+  limit = math.floor(tonumber(limit) or DEFAULT_WINDOW)
+  limit = math.max(1, math.min(limit, MAX_WINDOW))
+
+  if offset >= total then
+    error(string.format("offset %d is past the end — the blueprint has %d entities", offset, total))
+  end
+
+  local window = {}
+  for i = offset + 1, math.min(offset + limit, total) do
+    local e = norm.list[i]
+    window[#window + 1] = {
+      name = e.name,
+      position = e.position,
+      direction = e.direction,
+      recipe = e.recipe,
+    }
+  end
+  local needed, skipped = norm.items_needed, norm.skipped
 
   -- Flooring (concrete/landfill) the companion has no tool to place — report
   -- it so the brain knows the print expects prepared ground.
@@ -105,7 +128,7 @@ local function decode(holder, label, offset, limit)
   local next_offset = offset + #window
   return {
     label = label,
-    size = { w = math.ceil(max_x) + 1, h = math.ceil(max_y) + 1 },
+    size = norm.size,
     total_entities = total,
     offset = offset,
     entities = window,
@@ -270,7 +293,9 @@ function M.list(params)
   }
 end
 
-function M.read(params)
+-- Collect + filter (book) + match (label): the shared selection used by both
+-- read_blueprint and the build_blueprint task.
+local function choose_holder(params)
   local holders = collect_holders(params)
   if #holders == 0 then
     error("no blueprints found — hold one on the cursor, or keep them in an inventory/book "
@@ -301,27 +326,41 @@ function M.read(params)
   end
 
   local wanted = type(params.label) == "string" and params.label:lower() or nil
-  local chosen
   if wanted then
     for _, h in ipairs(holders) do
-      if h.label and h.label:lower() == wanted then chosen = h break end
+      if h.label and h.label:lower() == wanted then return h end
     end
-    if not chosen then
-      for _, h in ipairs(holders) do
-        if h.label and h.label:lower():find(wanted, 1, true) then chosen = h break end
-      end
+    for _, h in ipairs(holders) do
+      if h.label and h.label:lower():find(wanted, 1, true) then return h end
     end
-    if not chosen then
-      error('no blueprint matching "' .. params.label .. '" — available: ' .. label_list(holders))
-    end
-  else
-    chosen = holders[1] -- cursor first, by collection order
+    error('no blueprint matching "' .. params.label .. '" — available: ' .. label_list(holders))
   end
+  return holders[1] -- cursor first, by collection order
+end
 
+function M.read(params)
+  local chosen = choose_holder(params)
   local result = decode(chosen.holder, chosen.label, params.offset, params.limit)
   result.where = chosen.where
   result.book = chosen.book
   return result
+end
+
+-- Everything the build_blueprint task needs: the FULL print (no window),
+-- positions still relative to the top-left entity, item + entity name per
+-- step. See scripts/actions/build_blueprint.lua.
+function M.resolve_for_build(params)
+  local chosen = choose_holder(params)
+  local norm = normalize(chosen.holder)
+  return {
+    label = chosen.label,
+    where = chosen.where,
+    book = chosen.book,
+    entities = norm.list,
+    items_needed = norm.items_needed,
+    skipped = norm.skipped,
+    size = norm.size,
+  }
 end
 
 return M
