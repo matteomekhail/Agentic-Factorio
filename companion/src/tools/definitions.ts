@@ -1,9 +1,7 @@
 // The single tool registry, shared by the built-in agent loop and the MCP
 // server. Tool results are short natural-language strings; errors are returned
 // as "Error: ..." strings too, so the model can react instead of crashing.
-import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { Bridge } from "../bridge.js";
 import {
   type AnalyzeFactoryResult,
   asArray,
@@ -20,50 +18,9 @@ import {
   type StartResearchResult,
   type Task,
 } from "../types.js";
-import { captureView, type ImageToolOutput } from "../vision.js";
-
-export type ToolOutput = string | ImageToolOutput;
-
-export function isImageToolOutput(output: ToolOutput): output is ImageToolOutput {
-  return typeof output !== "string";
-}
-
-export function toModelOutput(output: ToolOutput) {
-  if (!isImageToolOutput(output)) return { type: "text" as const, value: output };
-  return {
-    type: "content" as const,
-    value: [
-      { type: "text" as const, text: output.text },
-      {
-        type: "file" as const,
-        data: { type: "data" as const, data: output.image.data },
-        mediaType: output.image.mimeType,
-        filename: output.image.filename,
-      },
-    ],
-  };
-}
-
-export interface ToolSpec {
-  name: string;
-  description: string;
-  schema: z.ZodObject<z.ZodRawShape>;
-  execute(bridge: Bridge, args: Record<string, unknown>): Promise<ToolOutput>;
-}
-
-export interface ToolHooks {
-  onTool?: (name: string, detail: string) => void;
-}
-
-const err = (e: unknown): string => {
-  if (e instanceof z.ZodError) {
-    const issues = e.issues
-      .map((i) => `${i.path.join(".") || "input"}: ${i.message}`)
-      .join("; ");
-    return `Error: invalid arguments — ${issues}`;
-  }
-  return `Error: ${e instanceof Error ? e.message : String(e)}`;
-};
+import { captureView } from "../vision.js";
+import type { ToolSpec } from "./adapter.js";
+import { defineTool as spec, directionField, itemsField } from "./core.js";
 
 const num = (n: number): string => n.toLocaleString("en-US");
 
@@ -377,77 +334,6 @@ function formatImported(bp: ImportedBlueprint): string {
     .filter(Boolean)
     .join("\n");
 }
-
-const companionField = z
-  .string()
-  .max(20)
-  .optional()
-  .describe(
-    'which companion performs this (default "AI"); other_companions in look_around lists the crew',
-  );
-
-const backgroundField = z
-  .boolean()
-  .optional()
-  .describe(
-    "action tasks only: true = don't wait — returns 'queued as task #N' immediately and the " +
-      "outcome arrives later as an [event]. USE THIS to run several companions in parallel",
-  );
-
-function spec<S extends z.ZodObject<z.ZodRawShape>>(
-  name: string,
-  description: string,
-  schema: S,
-  run: (bridge: Bridge, args: z.infer<S>) => Promise<ToolOutput>,
-): ToolSpec {
-  // Every tool accepts optional `companion` and `background`; a scoped bridge
-  // injects/handles them, so individual tools stay agnostic of both.
-  const fullSchema = schema.extend({ companion: companionField, background: backgroundField });
-  return {
-    name,
-    description,
-    schema: fullSchema,
-    execute: async (bridge, args) => {
-      try {
-        const parsed = fullSchema.parse(args);
-        const { companion: companionName, background } = parsed as {
-          companion?: string;
-          background?: boolean;
-        };
-        let scoped = companionName ? bridge.scoped(companionName) : bridge;
-        if (background) {
-          // Fire-and-forget: swap enqueueAndWait for a plain enqueue; the mod
-          // pushes a task_done/task_failed event when the task finishes.
-          const base = scoped;
-          scoped = Object.create(base) as Bridge;
-          scoped.enqueueAndWait = async (task, opts) => {
-            const res = await base.call<{ task_id: number; companion: string }>("enqueue", {
-              task,
-              replace: opts?.replace ?? false,
-              background: true,
-            });
-            return `Queued in background as task #${res.task_id} for ${res.companion} — the outcome will arrive as an [event]. You can issue more orders right away.`;
-          };
-        }
-        return await run(scoped, parsed as z.infer<S>);
-      } catch (e) {
-        return err(e);
-      }
-    },
-  };
-}
-
-const directionField = z
-  .number()
-  .int()
-  .min(0)
-  .max(15)
-  .optional()
-  .describe("16-way direction: 0=north, 4=east, 8=south, 12=west");
-
-const itemsField = z
-  .record(z.string(), z.number().int().min(1))
-  .describe('item name to count, e.g. {"coal": 10}');
 
 /** Agent-facing tools, pure data — consumed by both the ai-sdk loop
  *  (buildTools) and the MCP server. */
@@ -1377,29 +1263,4 @@ export function toolSpecs(): ToolSpec[] {
       },
     ),
   ];
-}
-
-function summarizeArgs(args: Record<string, unknown>): string {
-  return Object.entries(args)
-    .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => `${k}=${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`)
-    .join(" ");
-}
-
-/** ai-sdk ToolSet over the shared specs, for the built-in agent loop. */
-export function buildTools(bridge: Bridge, hooks: ToolHooks = {}): ToolSet {
-  const tools: ToolSet = {};
-  for (const s of toolSpecs()) {
-    tools[s.name] = tool<Record<string, unknown>, ToolOutput, {}>({
-      description: s.description,
-      inputSchema: s.schema,
-      execute: async (args) => {
-        const record = args as Record<string, unknown>;
-        hooks.onTool?.(s.name, summarizeArgs(record));
-        return s.execute(bridge, record);
-      },
-      toModelOutput: ({ output }) => toModelOutput(output as ToolOutput),
-    });
-  }
-  return tools;
 }

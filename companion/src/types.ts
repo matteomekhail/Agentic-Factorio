@@ -6,6 +6,7 @@ export interface Position {
 }
 
 export interface PingResult {
+  protocol_version: number;
   mod_version: string;
   factorio_version: string;
   tick: number;

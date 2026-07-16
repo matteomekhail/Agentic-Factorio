@@ -256,7 +256,9 @@ TUTTI; per fermarne uno solo: «Anna, fermati».
 
 ## 8. Risoluzione problemi
 
-Primo passo sempre: `node companion/dist/cli.js doctor` controlla configurazione, mod e connessione, e per ogni problema stampa il fix.
+Primo passo sempre: `node companion/dist/cli.js doctor` controlla configurazione,
+protocollo, mod, connessione e il tipo di cervello scelto, e per ogni problema stampa il fix.
+`doctor --json` produce un report diagnostico strutturato e senza password o chiavi API.
 
 | Sintomo | Causa probabile | Fix |
 | --- | --- | --- |

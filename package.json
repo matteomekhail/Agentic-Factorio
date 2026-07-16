@@ -7,7 +7,8 @@
   ],
   "scripts": {
     "build": "npm run build -w companion",
-    "test": "npm run test -w companion",
+    "test": "npm run test:unit && npm run test:mod",
+    "test:unit": "npm run test -w companion",
     "typecheck": "npm run typecheck -w companion",
     "play": "npm run play -w companion",
     "package:mod": "bash scripts/package-mod.sh",

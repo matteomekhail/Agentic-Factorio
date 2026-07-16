@@ -41,6 +41,7 @@ export class AgentLoop {
   private history: ModelMessage[] = [];
   private inbox: ChatMessage[] = [];
   private running = false;
+  private drainScheduled = false;
   private abort: AbortController | null = null;
   private readonly sessionKey: string | undefined;
   private readonly budgetWarnTokens: number;
@@ -72,14 +73,14 @@ export class AgentLoop {
       return;
     }
     this.inbox.push(msg);
-    void this.drain();
+    this.scheduleDrain();
   }
 
   /** Push events from the game (attacked, died, research done, supply warnings). */
   onEvent(event: { tick: number; text: string }): void {
     log.info(`game event: ${event.text}`);
     this.inbox.push({ id: 0, tick: event.tick, player: "[event]", text: event.text });
-    void this.drain();
+    this.scheduleDrain();
   }
 
   /** Every `minutes`, nudge the agent to look around and report only if
@@ -127,6 +128,16 @@ export class AgentLoop {
       content: "[system note] The player typed !stop: everything you were doing was force-cancelled.",
     });
     this.persist();
+  }
+
+  /** Coalesce all messages emitted by one poll into a single model wake. */
+  private scheduleDrain(): void {
+    if (this.drainScheduled) return;
+    this.drainScheduled = true;
+    queueMicrotask(() => {
+      this.drainScheduled = false;
+      void this.drain();
+    });
   }
 
   private async drain(): Promise<void> {

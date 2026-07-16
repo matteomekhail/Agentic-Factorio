@@ -1,6 +1,8 @@
 // Typed wrapper over RCON → remote.call("agentic","rpc",...) (see docs/PROTOCOL.md).
 import { RconClient } from "./rcon.js";
 import type { ChunkedEnvelope, GetTaskResult, Task } from "./types.js";
+import { parseRpcEnvelope, type RpcMethod } from "./protocol/contract.js";
+import { recordRpc } from "./telemetry.js";
 
 export class ModError extends Error {}
 
@@ -22,7 +24,19 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export class Bridge {
   constructor(private readonly rcon: RconClient) {}
 
-  async call<T>(method: string, params?: unknown): Promise<T> {
+  async call<T>(method: RpcMethod, params?: unknown): Promise<T> {
+    const started = performance.now();
+    let succeeded = false;
+    try {
+      const result = await this.callUnchecked<T>(method, params);
+      succeeded = true;
+      return result;
+    } finally {
+      recordRpc(method, performance.now() - started, succeeded);
+    }
+  }
+
+  private async callUnchecked<T>(method: RpcMethod, params?: unknown): Promise<T> {
     const json = escapeLuaString(JSON.stringify(params ?? {}));
     const cmd = `/silent-command remote.call("agentic","rpc","${method}","${json}")`;
     const raw = (await this.rcon.exec(cmd)).trim();
@@ -31,11 +45,13 @@ export class Bridge {
         "empty response from the game — is the agentic-companion mod installed and enabled on this save?",
       );
     }
-    let envelope: { ok: boolean; data?: T; error?: string; chunked?: boolean };
+    let envelope: ReturnType<typeof parseRpcEnvelope>;
     try {
-      envelope = JSON.parse(raw);
-    } catch {
-      throw new ModError(`unparseable response from the game: ${raw.slice(0, 200)}`);
+      envelope = parseRpcEnvelope(raw);
+    } catch (error) {
+      throw new ModError(
+        `invalid protocol response from the game: ${raw.slice(0, 200)} (${error instanceof Error ? error.message : error})`,
+      );
     }
     if (envelope.ok && envelope.chunked) {
       // Oversized response: part 1 came inline, fetch parts 2..N and reparse.
@@ -46,7 +62,7 @@ export class Bridge {
         assembled += chunk.data;
       }
       try {
-        envelope = JSON.parse(assembled);
+        envelope = parseRpcEnvelope(assembled);
       } catch {
         throw new ModError(
           `unparseable chunked response from the game (${head.parts} parts, ${assembled.length} bytes)`,
@@ -65,7 +81,7 @@ export class Bridge {
   scoped(companion: string): Bridge {
     const parent = this;
     const child = Object.create(parent) as Bridge;
-    child.call = <T>(method: string, params?: unknown): Promise<T> =>
+    child.call = <T>(method: RpcMethod, params?: unknown): Promise<T> =>
       parent.call<T>(method, { ...((params as Record<string, unknown>) ?? {}), companion });
     return child;
   }

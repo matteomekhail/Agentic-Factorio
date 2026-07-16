@@ -4,6 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWriteFile } from "./setup/atomic.js";
+
+export type BrainKind = "api" | "codex" | "claude-mcp" | "codex-mcp";
 
 export interface RconSettings {
   host: string;
@@ -20,6 +23,7 @@ export interface AppConfig {
   ollamaBaseUrl?: string;
   proactiveMinutes?: number;
   budgetWarnTokens?: number;
+  brainKind?: BrainKind;
 }
 
 /** Fully merged runtime settings for one invocation. */
@@ -31,6 +35,7 @@ export interface Settings {
   ollamaBaseUrl?: string;
   proactiveMinutes?: number;
   budgetWarnTokens?: number;
+  brainKind?: BrainKind;
 }
 
 export interface SettingsFlags {
@@ -71,8 +76,7 @@ export function loadConfig(): AppConfig | null {
 export function saveConfig(config: AppConfig): void {
   fs.mkdirSync(configDir(), { recursive: true });
   const file = configPath();
-  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  fs.chmodSync(file, 0o600); // contains API keys and the RCON password
+  atomicWriteFile(file, `${JSON.stringify(config, null, 2)}\n`, 0o600);
 }
 
 function envInt(name: string): number | undefined {
@@ -99,6 +103,7 @@ export function resolveSettings(flags: SettingsFlags = {}): Settings {
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? cfg.ollamaBaseUrl,
     proactiveMinutes: flags.proactiveMinutes ?? cfg.proactiveMinutes,
     budgetWarnTokens: cfg.budgetWarnTokens,
+    brainKind: cfg.brainKind,
   };
 }
 

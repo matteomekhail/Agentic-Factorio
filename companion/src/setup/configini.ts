@@ -2,6 +2,7 @@
 // any game (including "Host saved game") opens an RCON port on localhost.
 import fs from "node:fs";
 import path from "node:path";
+import { atomicWriteFile } from "./atomic.js";
 
 export interface RconIniSettings {
   port: number;
@@ -60,6 +61,6 @@ export function patchRconConfig(configIniPath: string, settings: RconIniSettings
   if (!fs.existsSync(backupPath)) {
     fs.copyFileSync(configIniPath, backupPath); // keep the pristine original only
   }
-  fs.writeFileSync(configIniPath, updated, "utf8");
+  atomicWriteFile(configIniPath, updated);
   return { changed: true };
 }

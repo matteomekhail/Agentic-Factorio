@@ -16,6 +16,7 @@ local screenshot = require("scripts.screenshot")
 
 rpc.register("ping", function()
   return {
+    protocol_version = 3,
     mod_version = script.active_mods["agentic-companion"],
     factorio_version = script.active_mods["base"],
     tick = game.tick,

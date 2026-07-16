@@ -39,7 +39,8 @@ achievements on any save the companion touches).
 
 3. **Play** — pick one of the three brain modes below.
 
-Something off? `node companion/dist/cli.js doctor` checks config, mod and connection.
+Something off? `node companion/dist/cli.js doctor` checks config, protocol, mod,
+connection and the selected brain. Add `--json` for a redacted machine-readable report.
 Type `!stop` in game chat at any time to instantly cancel everything the companion is doing.
 
 ## The three brain modes
