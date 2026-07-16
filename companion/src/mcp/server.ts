@@ -2,6 +2,9 @@
 // MCP-only conveniences (connect_status, read_chat, wait_for_chat).
 // CRITICAL: stdout carries the JSON-RPC stream — never write to it.
 // All diagnostics go to stderr via console.error (do not import log.ts).
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -54,6 +57,30 @@ function toResult(output: ToolOutput) {
   };
 }
 
+/** Clients that don't render MCP image content (Codex CLI) would keep half a
+ *  megabyte of base64 as TEXT in their context — measured to blow a session
+ *  up to compaction. For those clients, write the image to a temp file and
+ *  hand back its path so the model opens it with its native image viewer.
+ *  Override with AGENTIC_VIEW_IMAGE_MODE=inline|file. */
+function externalizeImageIfNeeded(output: ToolOutput, clientName: string): ToolOutput {
+  if (!isImageToolOutput(output)) return output;
+  const mode = process.env.AGENTIC_VIEW_IMAGE_MODE ?? (/codex/i.test(clientName) ? "file" : "inline");
+  if (mode !== "file") return output;
+  try {
+    const dir = path.join(os.tmpdir(), "agentic-factorio-views");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, path.basename(output.image.filename));
+    fs.writeFileSync(file, Buffer.from(output.image.data, "base64"));
+    return (
+      `${output.text}\nThe screenshot is saved at ${file} — VIEW IT NOW with your ` +
+      "image viewer tool (view_image) to actually see the base; do not read it as text or base64."
+    );
+  } catch (e) {
+    console.error(`[agentic-factorio] couldn't externalize screenshot: ${errText(e)}`);
+    return output; // fall back to inline rather than losing the image
+  }
+}
+
 function formatChatLines(messages: ChatMessage[]): string {
   return messages.map((m) => `[#${m.id}] <${m.player}> ${m.text}`).join("\n");
 }
@@ -79,7 +106,9 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         "SPEED: every tool call costs thinking time — plan a few moves ahead and batch: " +
         "run_plan chains craft/insert/extract/mine/place steps on one companion in ONE call " +
         "(one [event] at the end; a failed step cancels the rest), build_plan batches " +
-        "construction. Ten single calls is a smell.\n" +
+        "construction, inspect_entity takes targets (16 machines/call), can_place takes " +
+        "placements (24 spots/call), describe_prototype takes 10 names. Ten single calls " +
+        "is a smell.\n" +
         "3. AUTOMATION FIRST: this is Factorio — manual labor is only for bootstrapping. If " +
         "you repeat the same manual action twice (feeding a furnace, hand-crafting the same " +
         "item, ferrying goods), stop and BUILD the automation instead: burner drill facing a " +
@@ -161,7 +190,9 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         } catch (e) {
           return toResult(errText(e));
         }
-        return toResult(await spec.execute(bridge, (args ?? {}) as Record<string, unknown>));
+        const output = await spec.execute(bridge, (args ?? {}) as Record<string, unknown>);
+        const clientName = server.server.getClientVersion()?.name ?? "";
+        return toResult(externalizeImageIfNeeded(output, clientName));
       },
     );
   }

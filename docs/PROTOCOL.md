@@ -62,10 +62,17 @@ relative path; Factorio completes the file at the end of the update. `request_id
 random 8..64-character alphanumeric/hyphen token so an old file can never satisfy a fresh
 request. Factorio's renderer does nothing on a headless server.
 
-The TS `view_area` tool waits for the file, reads it as base64, deletes the temporary JPEG,
-and returns text + image content to both AI-SDK and MCP clients. It requires Factorio and
-the companion app on the same machine. The user-data directory comes from setup, the
-standard OS location, or `AGENTIC_FACTORIO_USER_DIR`.
+The TS `view_area` tool waits for the file (size-stable across two polls — the renderer
+writes asynchronously), reads it as base64, deletes the temporary JPEG, and returns text +
+image content to both AI-SDK and MCP clients. It requires Factorio and the companion app on
+the same machine. The user-data directory comes from setup, the standard OS location, or
+`AGENTIC_FACTORIO_USER_DIR`.
+
+MCP clients that don't render image content (Codex CLI) would keep ~500 KB of base64 as
+TEXT in their context per screenshot — measured to blow a session up to compaction. For
+clients whose `clientInfo.name` matches `codex` the server instead writes the JPEG under
+`$TMPDIR/agentic-factorio-views/` and returns its path with an instruction to open it with
+the client's native image viewer. Override with `AGENTIC_VIEW_IMAGE_MODE=inline|file`.
 
 ### `get_state` — `{ radius?: 40 }` (max 80) →
 ```jsonc
@@ -93,7 +100,12 @@ standard OS location, or `AGENTIC_FACTORIO_USER_DIR`.
 }
 ```
 
-### `inspect` — `{ position: {x,y} }` or `{ unit_number: 42 }` →
+### `inspect` — `{ position: {x,y} }`, `{ unit_number: 42 }`, or batched `{ targets: [{x,y}, ...] }` →
+
+Batched form (max 16 targets) returns `{ entities: [<single-result or {error, position}>, ...] }`
+in input order — one RPC instead of one model round-trip per machine.
+
+Single form:
 Details of ONE entity (searched within 1.5 tiles of position):
 ```jsonc
 {
@@ -236,6 +248,9 @@ per name (item, entity or recipe — resolve in that order, follow item→place_
 Include only non-null keys. Unknown names → `{"kind":"unknown"}`.
 
 `can_place` — `{ item, position:{x,y}, direction?: 0 }` → `{ can_place: bool, reason?: "blocked by tree at (12,4)" }`
+Batched: `{ item?, placements: [{item?, position:{x,y}, direction?}, ...] }` (max 24; per-placement
+item falls back to the top-level one) → `{ results: [{can_place, reason?, position}, ...] }` in
+input order.
 Dry run with `build_check_type.manual`, no side effects. Best-effort blocker naming.
 
 `find_buildable_area` — `{ width, height, near:{x,y}, max_distance?: 50 }` →

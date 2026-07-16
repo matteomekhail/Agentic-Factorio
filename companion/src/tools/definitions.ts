@@ -524,10 +524,36 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "inspect_entity",
-      "Inspect ONE entity near a map position (searched within 1.5 tiles): type, status, recipe, crafting progress, inventory contents, items sitting ON a belt (transport lines), and fluids inside pipes/tanks/machines (or that the fluid system is dry). Use it to check machines, chests, belts and pipes — never run raw console commands for this. Returns a plain-text report.",
-      z.object({ x: z.number(), y: z.number() }),
-      async (bridge, { x, y }) =>
-        formatInspect(await bridge.call<InspectResult>("inspect", { position: { x, y } })),
+      "Inspect entities near map positions (each searched within 1.5 tiles): type, status, recipe, crafting progress, inventory contents, items sitting ON a belt (transport lines), and fluids inside pipes/tanks/machines (or that the fluid system is dry). Checking a whole production line? Pass targets and read up to 16 machines in ONE call instead of one call per machine. Never run raw console commands for this. Returns a plain-text report.",
+      z.object({
+        x: z.number().optional().describe("single entity: position x"),
+        y: z.number().optional().describe("single entity: position y"),
+        targets: z
+          .array(z.object({ x: z.number(), y: z.number() }))
+          .min(1)
+          .max(16)
+          .optional()
+          .describe("batch: inspect up to 16 entities in one call (preferred over repeated singles)"),
+      }),
+      async (bridge, { x, y, targets }) => {
+        if (targets && targets.length > 0) {
+          const res = await bridge.call<{ entities: Array<(InspectResult & { error?: undefined }) | { error: string }> }>(
+            "inspect",
+            { targets },
+          );
+          return asArray(res.entities)
+            .map((e, i) =>
+              "error" in e && e.error
+                ? `(${targets[i]?.x}, ${targets[i]?.y}): ${e.error}`
+                : formatInspect(e as InspectResult),
+            )
+            .join("\n");
+        }
+        if (x === undefined || y === undefined) {
+          return "Error: give x and y for one entity, or targets for a batch.";
+        }
+        return formatInspect(await bridge.call<InspectResult>("inspect", { position: { x, y } }));
+      },
     ),
 
     spec(
@@ -607,14 +633,51 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "can_place",
-      "Dry-run check whether an item could be placed at a position, with no side effects. Answers yes, or no with the blocker when it can be identified. Use it to spot-check the tricky positions of a build (next to water, trees, ore borders, existing machines) before committing a build_plan.",
+      "Dry-run check whether items could be placed at positions, with no side effects. Answers yes, or no with the blocker when it can be identified. Spot-check ALL of a build's tricky positions (next to water, trees, ore borders, existing machines) in ONE call with placements before committing a build_plan — not one call per tile.",
       z.object({
-        item: z.string().describe('item name, e.g. "stone-furnace"'),
-        x: z.number(),
-        y: z.number(),
+        item: z.string().optional().describe('item name, e.g. "stone-furnace" (also the default for placements)'),
+        x: z.number().optional().describe("single check: position x"),
+        y: z.number().optional().describe("single check: position y"),
         direction: directionField,
+        placements: z
+          .array(
+            z.object({
+              item: z.string().optional().describe("defaults to the top-level item"),
+              x: z.number(),
+              y: z.number(),
+              direction: directionField,
+            }),
+          )
+          .min(1)
+          .max(24)
+          .optional()
+          .describe("batch: check up to 24 spots in one call (preferred over repeated singles)"),
       }),
-      async (bridge, { item, x, y, direction }) => {
+      async (bridge, { item, x, y, direction, placements }) => {
+        if (placements && placements.length > 0) {
+          const res = await bridge.call<{
+            results: Array<{ can_place: boolean; reason?: string }>;
+          }>("can_place", {
+            item,
+            placements: placements.map((p) => ({
+              item: p.item,
+              position: { x: p.x, y: p.y },
+              direction: p.direction,
+            })),
+          });
+          return asArray(res.results)
+            .map((r, i) => {
+              const p = placements[i];
+              const label = p?.item ?? item ?? "item";
+              return r.can_place
+                ? `(${p?.x}, ${p?.y}) ${label}: yes`
+                : `(${p?.x}, ${p?.y}) ${label}: NO — ${r.reason ?? "blocked"}`;
+            })
+            .join("\n");
+        }
+        if (item === undefined || x === undefined || y === undefined) {
+          return "Error: give item + x + y for one check, or a placements array for a batch.";
+        }
         const res = await bridge.call<CanPlaceResult>("can_place", {
           item,
           position: { x, y },
