@@ -87,6 +87,10 @@ Se preferisci fare a mano, sono tre passi:
 Checklist finale: ☐ due righe RCON in `config.ini` · ☐ mod nella cartella `mods` ·
 ☐ mod abilitata · ☐ Factorio riavviato.
 
+Per regolare la velocità fisica dei companion vai in **Impostazioni → Impostazioni mod
+→ Mappa → Companion movement speed**. Il valore predefinito è 1,6×, è modificabile
+durante la partita da 1× a 4× e non accelera né i giocatori né i veicoli.
+
 ## 4. Avvia la partita (importante!)
 
 RCON funziona **solo su partite hostate**, non in single player classico. Quindi:

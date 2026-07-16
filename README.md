@@ -53,6 +53,10 @@ See [docs/MULTI-AGENT.md](docs/MULTI-AGENT.md). These launchers deliberately use
 the clients' unrestricted-permission modes; run them only in a trusted checkout.
 Type `!stop` in game chat at any time to instantly cancel everything the companion is doing.
 
+The physical walking multiplier can be changed while a save is running under
+*Settings → Mod settings → Map → Companion movement speed* (1×–4×). It affects
+companion bodies only, never human players or vehicles.
+
 ## The three brain modes
 
 **1. Claude Code (Claude subscription)** — register the companion as an MCP server:
@@ -89,7 +93,7 @@ Also supported: `ANTHROPIC_API_KEY`, OpenAI, or Ollama locally for free. Use
 ## What it can do
 
 Look around · inspect machines (status, recipe, contents) · walk anywhere (real
-pathfinding) · follow you · mine ore / trees / rocks in bulk · place buildings ·
+pathfinding, 1.6× companion-only speed by default) · follow you · mine ore / trees / rocks in bulk · place buildings ·
 craft items · load & unload machines · change recipes · rotate entities · start
 research · respawn after death · view a real rendered screenshot of the base when
 spatial context matters. Every positional action auto-walks into reach first.

@@ -9,6 +9,8 @@ local M = {}
 
 M.DEFAULT = "AI"
 local MAX_COMPANIONS = 4
+local MOVEMENT_SPEED_SETTING = "agentic-companion-movement-speed"
+local DEFAULT_MOVEMENT_SPEED = 1.6
 
 local PALETTE = {
   { r = 0.30, g = 0.79, b = 0.69, a = 1 }, -- teal
@@ -34,6 +36,31 @@ end
 local function records()
   storage.companions = storage.companions or {}
   return storage.companions
+end
+
+-- Keep the speed bonus scoped to companion bodies. A force-level modifier
+-- would also accelerate human players, while LuaControl's modifier is local
+-- to this character and composes with tiles, equipment and research.
+function M.movement_speed_multiplier()
+  local setting = settings and settings.global and settings.global[MOVEMENT_SPEED_SETTING]
+  return (setting and tonumber(setting.value)) or DEFAULT_MOVEMENT_SPEED
+end
+
+local function apply_speed_to(ent)
+  if not (ent and ent.valid) then return end
+  ent.character_running_speed_modifier = M.movement_speed_multiplier() - 1
+end
+
+function M.apply_movement_speed()
+  for _, rec in pairs(records()) do
+    apply_speed_to(rec.entity)
+  end
+end
+
+function M.on_runtime_setting_changed(event)
+  if event.setting == MOVEMENT_SPEED_SETTING then
+    M.apply_movement_speed()
+  end
 end
 
 function M.names()
@@ -164,11 +191,13 @@ function M.spawn(params)
 
   local existing = M.get(name)
   if existing then
+    apply_speed_to(existing)
     return {
       name = name,
       position = { x = existing.position.x, y = existing.position.y },
       unit_number = existing.unit_number,
       already_existed = true,
+      movement_speed = M.movement_speed_multiplier(),
     }
   end
   if not records()[name] and count_companions() >= MAX_COMPANIONS then
@@ -208,6 +237,7 @@ function M.spawn(params)
   rec.entity = ent
   rec.unit_number = ent.unit_number
   ent.color = color_for(name)
+  apply_speed_to(ent)
   if name == M.DEFAULT then
     -- force: the body is brand new, so its inventory can't have the books yet
     pcall(starter.ensure, rec, ent, true)
@@ -220,6 +250,7 @@ function M.spawn(params)
     position = { x = pos.x, y = pos.y },
     unit_number = ent.unit_number,
     already_existed = false,
+    movement_speed = M.movement_speed_multiplier(),
   }
 end
 
