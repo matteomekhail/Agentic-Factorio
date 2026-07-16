@@ -124,8 +124,9 @@ function M.import(params)
   local inv = game.create_inventory(1)
   local ok, result = pcall(function()
     local stack = inv[1]
-    local import_result = stack.import_stack(params.string)
-    if import_result == -1 then
+    -- import_stack: 0 = ok, -1 = ok with errors (modded content missing
+    -- here — it still imports), 1 = failed outright.
+    if stack.import_stack(params.string) == 1 or not stack.valid_for_read then
       error("that string isn't a valid blueprint export — copy it again from the blueprint's Export button")
     end
     if stack.is_blueprint_book then
@@ -204,6 +205,8 @@ local function collect_holders(params)
     local cur = try(function() return player.cursor_stack end)
     if cur and try(function() return cur.valid_for_read and cur.is_blueprint end) then
       add(cur, "in " .. player.name .. "'s hand", nil, try(function() return cur.label end))
+    elseif cur and try(function() return cur.valid_for_read and cur.is_blueprint_book end) then
+      scan_book(cur, "in " .. player.name .. "'s hand", nil, 1)
     end
     local rec = try(function() return player.cursor_record end)
     if rec and try(function() return rec.valid and rec.type == "blueprint" end) then

@@ -50,6 +50,7 @@ function M.take(params)
     show_gui = false,
     show_entity_info = true,
     hide_clouds = true,
+    daytime = 0, -- render in full daylight: a night screenshot is unreadable
     force_render = true,
   })
 

@@ -9,7 +9,7 @@ package.path = here .. "/../../mod/agentic-companion/?.lua;" .. package.path
 _G.storage = { companions = {} }
 _G.defines = { inventory = { item_main = 1 } }
 _G.prototypes = { entity = {} }
-_G.game = { connected_players = {} }
+_G.game = { connected_players = {}, tick = 0 }
 
 local failures = 0
 local function check(cond, what)
@@ -40,9 +40,10 @@ local fake_data = {
 package.loaded["scripts.starter_blueprints"] = fake_data
 local starter = require("scripts.starter")
 
--- A fake character inventory: import_stack turns an empty slot into a book
--- whose label mimics the one embedded in the export string.
+-- Fake inventories/stacks. import_stack follows the real Factorio contract:
+-- 0 = ok, -1 = succeeded WITH ERRORS (still imports!), 1 = failed outright.
 local EMBEDDED_LABELS = { STR_A = "Alpha", STR_A2 = "Alpha2", STR_B = nil }
+local IMPORT_RESULTS = { STR_A = 0, STR_B = 0, STR_A2 = -1, STR_BAD456 = 1 }
 local import_calls = 0
 local function fake_inventory(slots)
   local inv = { n = slots }
@@ -53,10 +54,19 @@ local function fake_inventory(slots)
     end
     slot.import_stack = function(str)
       import_calls = import_calls + 1
-      slot.valid_for_read = true
-      slot.is_blueprint_book = true
-      slot.label = EMBEDDED_LABELS[str]
-      return 0
+      local result = IMPORT_RESULTS[str] or 0
+      if result ~= 1 then
+        slot.valid_for_read = true
+        slot.is_blueprint_book = true
+        slot.label = EMBEDDED_LABELS[str]
+      end
+      return result
+    end
+    slot.set_stack = function(src)
+      slot.valid_for_read = src.valid_for_read
+      slot.is_blueprint_book = src.is_blueprint_book
+      slot.label = src.label
+      return true
     end
     inv[i] = slot
   end
@@ -73,8 +83,13 @@ local function fake_inventory(slots)
     end
     return nil
   end
+  inv.destroy = function() end
   return setmetatable(inv, { __len = function() return slots end })
 end
+game.create_inventory = function(n) return fake_inventory(n) end
+
+local notifications = {}
+starter.notify = function(kind, text) notifications[#notifications + 1] = { kind = kind, text = text } end
 
 local function books_in(inv)
   local out = {}
@@ -105,24 +120,57 @@ do
   check(import_calls == calls_before, "starter: no re-import on same version")
   check(books_in(inv) == "Alpha,Beta", "starter: no duplicates after re-ensure")
 
-  -- version bump swaps the set
+  -- version bump swaps the set; STR_A2 imports "with errors" (-1) — e.g. a
+  -- different mod set — and must still be accepted (the book exists).
   fake_data.version = "test-v2"
   fake_data.books = { { label = "Alpha2", source = "a.txt", string = "STR_A2" } }
   check(starter.ensure(rec, ent) == true, "starter: version bump re-issues")
   check(books_in(inv) == "Alpha2", "starter: old set removed, new set present")
+  check(#notifications == 0, "starter: -1 (imported with errors) is NOT a failure")
 
-  -- failure path: full inventory -> one attempt, then guarded until force
+  -- outright import failure (1): nothing in the companion inventory may
+  -- change (the old set survives), and the failure is reported exactly once.
   fake_data.version = "test-v3"
-  local tiny = fake_inventory(0)
-  local ent2 = { get_main_inventory = function() return tiny end }
-  local rec2 = {}
-  check(starter.ensure(rec2, ent2) == false, "starter: full inventory fails")
-  check(rec2.starter_book_version == nil, "starter: failed attempt doesn't record version")
+  fake_data.books = {
+    { label = "Alpha", source = "a.txt", string = "STR_A" },
+    { label = "Broken", source = "bad.txt", string = "STR_BAD456" },
+  }
+  check(starter.ensure(rec, ent) == false, "starter: failed import returns false")
+  check(books_in(inv) == "Alpha2", "starter: failed import leaves the old set untouched")
+  check(rec.starter_book_version == "test-v2", "starter: failed attempt doesn't record version")
+  check(#notifications == 1 and notifications[1].kind == "starter_books",
+    "starter: failure notified through the injected sink")
+
+  -- retry backoff: quiet inside the window, retried after it, notified once
   local calls = import_calls
-  check(starter.ensure(rec2, ent2) == false and import_calls == calls,
-    "starter: failed version isn't retried without force")
+  game.tick = 60
+  check(starter.ensure(rec, ent) == false and import_calls == calls,
+    "starter: no retry inside the backoff window")
+  game.tick = 60 * 120 + 1
+  check(starter.ensure(rec, ent) == false and import_calls > calls,
+    "starter: retried after the backoff window")
+  check(#notifications == 1, "starter: still only one notification per version")
+
+  -- a transient failure (full inventory) heals itself on a later retry
+  fake_data.version = "test-v4"
+  fake_data.books = { { label = "Alpha", source = "a.txt", string = "STR_A" } }
+  local tiny = fake_inventory(0)
+  local slots_free = false
+  local ent2 = { get_main_inventory = function()
+    return slots_free and fake_inventory(5) or tiny
+  end }
+  local rec2 = {}
+  game.tick = 0
+  check(starter.ensure(rec2, ent2) == false, "starter: full inventory fails")
+  slots_free = true
+  game.tick = 60 * 120 + 1
+  check(starter.ensure(rec2, ent2) == true,
+    "starter: freed slots + elapsed backoff -> books issued without respawn")
+
+  -- force (spawn path) ignores version and backoff entirely
+  fake_data.version = "test-v5"
   local ent3 = { get_main_inventory = function() return fake_inventory(5) end }
-  check(starter.ensure(rec2, ent3, true) == true, "starter: force retries after failure")
+  check(starter.ensure(rec2, ent3, true) == true, "starter: force issues immediately")
 end
 
 -- ----------------------------------------------------- blueprint.lua tests
@@ -242,6 +290,34 @@ do
     "available", "read: unknown label errors with suggestions")
 end
 
+do
+  -- A blueprint BOOK held on the player's cursor must be scanned too.
+  local hand_book = fake_book("Hand Book", {
+    fake_bp("Handy", { { name = "transport-belt", position = { x = 0, y = 0 } } }),
+  })
+  game.connected_players = { {
+    name = "Matteo",
+    connected = true,
+    cursor_stack = hand_book,
+    cursor_record = nil,
+    get_main_inventory = function() return nil end,
+  } }
+  local res = blueprint.list({})
+  local found = false
+  for _, b in ipairs(res.blueprints) do
+    if b.label == "Handy" and b.where:find('in Matteo\'s hand > book "Hand Book"', 1, true) then
+      found = true
+    end
+  end
+  check(found, "list: blueprint BOOK held on the cursor is scanned")
+  game.connected_players = {}
+
+  -- import_stack contract: 1 = failed outright -> a clear error, not a
+  -- confusing follow-up ('decodes to ?').
+  expect_error(function() blueprint.import({ string = "STR_BAD456" }) end,
+    "isn't a valid blueprint export", "import: outright import failure (1) is rejected cleanly")
+end
+
 -- ----------------------------------------------------- screenshot.lua tests
 local requested_screenshot
 game.take_screenshot = function(args) requested_screenshot = args end
@@ -267,6 +343,8 @@ do
       and requested_screenshot.force_render == true
       and requested_screenshot.path == result.path,
     "screenshot: visual factory detail and end-of-tick rendering requested")
+  check(requested_screenshot.daytime == 0,
+    "screenshot: rendered in full daylight (night images are unreadable)")
   expect_error(function() screenshot.take({ request_id = "../bad" }) end,
     "request_id", "screenshot: unsafe request ids rejected")
 end

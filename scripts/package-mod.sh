@@ -17,6 +17,10 @@ NAME="agentic-companion_$VERSION"
 DIST_DIR="$REPO_DIR/dist"
 ZIP_PATH="$DIST_DIR/$NAME.zip"
 
+# The generated starter blueprint data must match BlueprintBooks/*.txt —
+# regenerate before packaging so the zip can never ship stale books.
+node "$REPO_DIR/scripts/build-starter-blueprints.mjs"
+
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 

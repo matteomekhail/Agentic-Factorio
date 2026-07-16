@@ -316,7 +316,11 @@ disambiguated.
 `mod/scripts/starter_blueprints.lua`, issued by `mod/scripts/starter.lua`). The data carries a
 content-hash `version`; a 120-tick handler re-issues the set to a running save whenever the
 version changes (old starter books are removed by label — companion-renamed books are left
-alone).
+alone). The new set is imported into a scratch inventory first, so a bad import never
+destroys the books already carried; failures are retried every ~2 minutes (transient causes
+like a full inventory heal themselves) and reported once per version as a `starter_books`
+push event. `import_stack` contract: 0 = ok, -1 = imported WITH errors (still usable —
+accepted), 1 = failed outright (rejected).
 
 ## v4 — events & multi-companion
 
