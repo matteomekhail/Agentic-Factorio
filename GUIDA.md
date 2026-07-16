@@ -260,6 +260,16 @@ Primo passo sempre: `node companion/dist/cli.js doctor` controlla configurazione
 protocollo, mod, connessione e il tipo di cervello scelto, e per ogni problema stampa il fix.
 `doctor --json` produce un report diagnostico strutturato e senza password o chiavi API.
 
+Per avviare direttamente una sessione multi-agent con prompt già inviato:
+
+```sh
+npm run play:codex-agents    # Codex --yolo
+npm run play:claude-agents   # Claude --dangerously-skip-permissions
+```
+
+Questi comandi disabilitano le normali conferme di sicurezza del client: usali
+solo dentro questa copia del progetto, se ti fidi del codice e del server MCP.
+
 | Sintomo | Causa probabile | Fix |
 | --- | --- | --- |
 | Il companion non risponde in chat | La partita non è hostata (single player classico) | Esci e rientra da **Multiplayer → Host saved game** |

@@ -23,6 +23,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      - run: npm run test:mcp
       - name: Verify generated blueprints are committed
         run: npm run blueprints:build && git diff --exit-code
       - name: Verify mod package

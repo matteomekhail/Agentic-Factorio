@@ -18,6 +18,7 @@
     "build": "tsup src/cli.ts --format esm --clean",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:mcp": "MCP_SMOKE_OFFLINE=1 tsx test/mcp-smoke.ts",
     "play": "tsx src/cli.ts play"
   },
   "dependencies": {
