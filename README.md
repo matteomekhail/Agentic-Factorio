@@ -57,6 +57,11 @@ The physical walking multiplier can be changed while a save is running under
 *Settings → Mod settings → Map → Companion movement speed* (1×–4×). It affects
 companion bodies only, never human players or vehicles.
 
+Large goals run in short, event-driven waves: workers build and verify one
+closed production loop at a time, while broker completion/failure events wake
+the coordinator immediately. `build_plan` automatically prepares missing
+hand-craftable building items, reducing tool-call chatter during bootstrap.
+
 ## The three brain modes
 
 **1. Claude Code (Claude subscription)** — register the companion as an MCP server:

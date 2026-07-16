@@ -1,4 +1,4 @@
--- Spatial perception (PROTOCOL v3): scan_area (ASCII tile grid), can_place
+-- Spatial perception (introduced in protocol v3): scan_area (ASCII tile grid), can_place
 -- (dry-run placement check with blocker naming), find_buildable_area (nearest
 -- clear rectangle) and describe_prototype (geometry/energy facts about items,
 -- entities and recipes). All instant methods — no tasks, no side effects.

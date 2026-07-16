@@ -34,7 +34,22 @@ The coordinator begins with:
 3. `register_factorio_agent {role:"coordinator", ...}`
 4. `wait_for_agent_events`
 
-For a parallel request it calls `coordinate_submit_jobs`, then asks native subagents to claim jobs. Dependencies can reference job `key` values from the same submission.
+Codex uses the main session's strong model for coordination and the project
+worker profile's lower-latency `gpt-5.6-terra`/low-reasoning configuration for
+bounded execution. `.codex/config.toml` caps the session at one coordinator and
+three workers, matching the useful gameplay fan-out without recursive agents.
+
+For a parallel request it does one shared reconnaissance pass, calls
+`coordinate_submit_jobs` with a wave of at most three bounded 2–5 minute
+milestones, then asks native subagents to claim them. Each job names its exact
+area, inputs, output and observable definition of done. Dependencies can
+reference job `key` values from the same submission.
+
+`wait_for_agent_events` includes broker transitions (`job_done`, `job_failed`,
+`job_requeued`, `job_expired`), so the coordinator wakes as soon as a worker
+finishes and launches the next wave. If a native subagent cannot start after
+one retry, the coordinator uses `coordinate_takeover_job` instead of leaving
+the queued milestone idle.
 
 ## Worker lifecycle
 
@@ -50,6 +65,13 @@ register_factorio_agent(role=worker)
 ```
 
 Workers see game events only for companions they currently lease. They never receive player chat. The coordinator sees chat and all events.
+
+Workers are deliberately short-horizon: they stop any persistent duty on the
+leased body, avoid 128+ tile walks, use no more than two reconnaissance batches,
+and build a complete closed loop primarily with one `build_plan`. Missing
+placeable items are hand-crafted automatically by that plan when possible.
+Crafting or manually filling a machine is progress, not job completion; the
+worker verifies flowing inputs and produced or buffered output.
 
 ## Safety and recovery
 

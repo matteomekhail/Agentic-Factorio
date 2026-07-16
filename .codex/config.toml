@@ -1,0 +1,5 @@
+[agents]
+# One coordinator plus the three useful parallel construction workers. Keeping
+# the fan-out bounded avoids model-capacity churn and matches the physical crew.
+max_threads = 4
+max_depth = 1

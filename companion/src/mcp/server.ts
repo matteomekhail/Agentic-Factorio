@@ -96,7 +96,7 @@ const READ_ONLY_GAME_TOOLS = new Set([
 
 export async function runMcpServer(opts: McpServerOptions): Promise<void> {
   const server = new McpServer(
-    { name: "agentic-factorio", version: "0.2.0" },
+    { name: "agentic-factorio", version: "0.5.0" },
     {
       instructions: MCP_GAMEPLAY_INSTRUCTIONS,
     },
@@ -363,11 +363,14 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
           text:
             "Gioca a Factorio in modalità multi-agent. Tu sei il coordinator: chiama connect_status, " +
             "reset_coordination {confirm:true}, register_factorio_agent con role=coordinator, poi saluta via say. " +
-            "Quando il giocatore chiede 2+ lavori indipendenti, crea il DAG con coordinate_submit_jobs e " +
-            "spawna subagent NATIVI del client. Ogni worker deve registrarsi, claimare un job, fare lease_companion, " +
-            "riservare l'area se costruisce, passare agent_id e companion a ogni action tool, completare/fallire il job " +
-            "e rilasciare tutto. Solo tu leggi la chat, con wait_for_agent_events, e solo tu usi say. " +
-            "Non delegare richieste banali: il costo di coordinamento deve essere giustificato.",
+            "Quando il giocatore chiede 2+ lavori indipendenti, fai una sola ricognizione condivisa e crea ondate di " +
+            "massimo tre job da 2-5 minuti, ognuno con area/input/output e definition of done verificabile. Spawna " +
+            "subagent NATIVI del client di tipo factorio-worker. Assegna il companion più vicino e non mandarlo oltre " +
+            "128 tile a piedi. Ogni worker ferma duty persistenti, riserva l'area, usa soprattutto build_plan/run_plan " +
+            "senza micro-azioni background, verifica una linea realmente automatica, completa/fallisce e rilascia tutto. " +
+            "Solo tu leggi la chat e usi say. wait_for_agent_events restituisce anche job_done/job_failed: reagisci e " +
+            "lancia l'ondata successiva prima di aspettare ancora. Se un worker non parte, riprova una volta, poi usa " +
+            "coordinate_takeover_job. Il primo risultato automatico visibile deve arrivare entro circa cinque minuti.",
         },
       }],
     }),

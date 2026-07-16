@@ -51,7 +51,7 @@ local function malformed(step)
 end
 
 function M.start(task)
-  companion.require_companion()
+  local c = companion.require_companion()
   if type(task.steps) ~= "table" or #task.steps == 0 then
     error('build_plan requires steps = a non-empty array like [{"item":"transport-belt","position":{"x":1,"y":2}}]')
   end
@@ -78,6 +78,32 @@ function M.start(task)
       if #list > 0 then step._insert = list end
     end
   end
+
+  -- Construction intent implies permission to prepare the placeable items.
+  -- Queue missing, enabled hand-craft recipes once up front so the brain does
+  -- not need a craft call for every drill, inserter or belt. Factorio's normal
+  -- crafting queue handles craftable intermediates; anything unavailable is
+  -- still reported precisely by the placement phase.
+  task.auto_craft = task.auto_craft ~= false
+  task._auto_crafted = 0
+  if task.auto_craft then
+    local needed = {}
+    for _, step in ipairs(task.steps) do
+      needed[step.item] = (needed[step.item] or 0) + 1
+    end
+    local names = {}
+    for name in pairs(needed) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+      local missing = needed[name] - c.get_item_count(name)
+      local recipe = c.force.recipes[name]
+      if missing > 0 and recipe and recipe.enabled then
+        local started = c.begin_crafting({ count = missing, recipe = recipe.name or name })
+        task._auto_crafted = task._auto_crafted + started
+      end
+    end
+  end
+  task._waiting_for_crafts = task._auto_crafted > 0
 
   task.stop_on_error = task.stop_on_error == true
   task._index = 1
@@ -188,6 +214,10 @@ end
 
 local function summary(task)
   local s = string.format("placed %d/%d", task._placed, #task.steps)
+  if task._auto_crafted > 0 then
+    s = s .. string.format(" (prepared %d missing building item%s)",
+      task._auto_crafted, task._auto_crafted == 1 and "" or "s")
+  end
   local f = task._failures
   if #f > 0 then
     local parts = {}
@@ -233,6 +263,11 @@ function M.tick(task)
   local c = companion.get()
   if not c then
     return { status = "failed", detail = summary(task) .. " — the companion character is gone" }
+  end
+
+  if task._waiting_for_crafts then
+    if c.crafting_queue_size > 0 then return nil end
+    task._waiting_for_crafts = false
   end
 
   local step = task.steps[task._index]

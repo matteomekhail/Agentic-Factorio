@@ -1,6 +1,6 @@
 {
   "name": "agentic-factorio",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "AI companion for your Factorio world \u2014 bring Claude, GPT or any LLM into your game",
   "type": "module",
   "license": "MIT",

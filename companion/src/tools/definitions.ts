@@ -831,7 +831,7 @@ export function toolSpecs(): ToolSpec[] {
 
     spec(
       "build_plan",
-      "Build MANY entities in one go — the main way to construct anything multi-entity (mining setups, smelting rows, belt runs...). YOU compute the coordinates: scan_area for the ground truth, describe_prototype for every entity type's footprint and offsets, then list the steps in build order. Steps run sequentially with auto-walking; a failed step is reported and skipped (set stop_on_error to abort instead). Each step can also set a recipe and insert items (e.g. fuel) into what it just placed. The result says how many were placed and exactly which steps failed and why.",
+      "Build MANY entities in one go — the main way to construct anything multi-entity (mining setups, smelting rows, belt runs...). YOU compute the coordinates: scan_area for the ground truth, describe_prototype for every entity type's footprint and offsets, then list the steps in a compact walking/build order. By default the companion automatically hand-crafts missing placeable items it can make before construction, including normal craftable intermediates; set auto_craft=false only to preserve materials. Steps run sequentially with auto-walking; a failed step is reported and skipped (set stop_on_error to abort instead). Each step can also set a recipe and insert starter items. One build_plan should produce a complete closed-loop automation, not a single machine.",
       z.object({
         steps: z
           .array(
@@ -847,11 +847,13 @@ export function toolSpecs(): ToolSpec[] {
           .min(1)
           .max(100),
         stop_on_error: z.boolean().optional().describe("abort at the first failed step (default: skip and continue)"),
+        auto_craft: z.boolean().optional().describe("prepare missing placeable items by hand first (default true)"),
       }),
-      async (bridge, { steps, stop_on_error }) => {
+      async (bridge, { steps, stop_on_error, auto_craft }) => {
         const task: Task = {
           type: "build_plan",
           stop_on_error,
+          auto_craft,
           steps: steps.map((s) => ({
             item: s.item,
             position: { x: s.x, y: s.y },
