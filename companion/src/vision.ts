@@ -62,16 +62,23 @@ export async function readScreenshot(
 ): Promise<Buffer> {
   const file = screenshotFilePath(relativePath, options.userDir);
   const deadline = Date.now() + (options.timeoutMs ?? SCREENSHOT_TIMEOUT_MS);
+  // Factorio's renderer writes the JPEG asynchronously: only accept the file
+  // once its size is non-zero AND stable across two polls, or a half-written
+  // image could reach the model.
+  let lastSize = -1;
   while (Date.now() < deadline) {
     try {
-      const data = await fs.readFile(file);
-      if (data.length > 0) {
+      const size = (await fs.stat(file)).size;
+      if (size > 0 && size === lastSize) {
+        const data = await fs.readFile(file);
         await fs.unlink(file).catch(() => {});
         return data;
       }
+      lastSize = size;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ENOENT") throw error;
+      lastSize = -1;
     }
     await sleep(POLL_MS);
   }

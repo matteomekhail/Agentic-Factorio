@@ -45,6 +45,10 @@ rpc.register("list_trains", trains.list_trains)
 rpc.register("set_train_schedule", trains.set_train_schedule)
 local events = require("scripts.events")
 rpc.register("get_events", events.get)
+-- starter.lua can't require scripts.events itself (require cycle via
+-- companion.lua), so its failure reporting is injected here.
+local starter = require("scripts.starter")
+starter.notify = events.push
 rpc.register("enqueue", tasks.enqueue)
 rpc.register("get_task", tasks.get)
 rpc.register("cancel", tasks.cancel)
