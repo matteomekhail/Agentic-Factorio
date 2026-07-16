@@ -9,7 +9,7 @@ local M = {}
 local WAYPOINT_RADIUS_SQ = 0.25 -- advance to the next waypoint within 0.5 tiles
 local STUCK_CHECK_TICKS = 60
 local STUCK_EPSILON_SQ = 0.01 -- moved less than 0.1 tiles in a check window = stuck
-local PATH_WAIT_TICKS = 300 -- ~5s without a pathfinder answer → straight-line fallback
+local PATH_WAIT_TICKS = 90 -- ~1.5s without a pathfinder answer → straight-line fallback
 local RETRY_DELAY_TICKS = 30
 local MAX_RETRIES = 3
 

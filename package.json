@@ -16,7 +16,7 @@
     "play:claude-agents": "npm run build && node scripts/launch-factorio-agents.mjs claude",
     "package:mod": "bash scripts/package-mod.sh",
     "blueprints:build": "node scripts/build-starter-blueprints.mjs",
-    "test:mod": "lua tests/mod/starter_and_blueprint_test.lua && lua tests/mod/tasks_chain_test.lua"
+    "test:mod": "lua tests/mod/starter_and_blueprint_test.lua && lua tests/mod/tasks_chain_test.lua && lua tests/mod/companion_movement_test.lua"
   },
   "engines": {
     "node": ">=22"

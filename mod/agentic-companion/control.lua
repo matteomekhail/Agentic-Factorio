@@ -21,6 +21,7 @@ rpc.register("ping", function()
     factorio_version = script.active_mods["base"],
     tick = game.tick,
     companion_exists = companion.get() ~= nil,
+    companion_movement_speed = companion.movement_speed_multiplier(),
   }
 end)
 rpc.register("spawn_companion", companion.spawn)
@@ -61,8 +62,14 @@ remote.add_interface("agentic", {
   end,
 })
 
-script.on_init(state.init)
-script.on_configuration_changed(state.init)
+local function initialize()
+  state.init()
+  companion.apply_movement_speed()
+end
+
+script.on_init(initialize)
+script.on_configuration_changed(initialize)
+script.on_event(defines.events.on_runtime_mod_setting_changed, companion.on_runtime_setting_changed)
 script.on_event(defines.events.on_console_chat, chat.on_console_chat)
 script.on_nth_tick(120, function()
   companion.update_map_tag()
