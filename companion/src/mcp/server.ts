@@ -75,7 +75,11 @@ export async function runMcpServer(opts: McpServerOptions): Promise<void> {
         "companions, dispatched with background:true (returns instantly; the outcome arrives " +
         "as an [event]). Await a tool only when your next step depends on its result; keep " +
         "dependent steps on ONE companion so its queue runs them in order. An idle companion " +
-        "is wasted hands — give it a duty (defend_area, keep_fueled, follow_player).\n" +
+        "is wasted hands — give it a duty (defend_area, keep_fueled, follow_player). " +
+        "SPEED: every tool call costs thinking time — plan a few moves ahead and batch: " +
+        "run_plan chains craft/insert/extract/mine/place steps on one companion in ONE call " +
+        "(one [event] at the end; a failed step cancels the rest), build_plan batches " +
+        "construction. Ten single calls is a smell.\n" +
         "3. AUTOMATION FIRST: this is Factorio — manual labor is only for bootstrapping. If " +
         "you repeat the same manual action twice (feeding a furnace, hand-crafting the same " +
         "item, ferrying goods), stop and BUILD the automation instead: burner drill facing a " +

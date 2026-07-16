@@ -916,6 +916,102 @@ export function toolSpecs(): ToolSpec[] {
     ),
 
     spec(
+      "run_plan",
+      "Queue a whole SEQUENCE of actions on one companion in a single call — the FAST way to play. Steps run in order on that companion's lane (auto-walking included) while you move on immediately; ONE [event] arrives when the last step finishes. If a step fails you get one failure event and the rest of the plan is cancelled (dependent steps would fail anyway). Think a few moves ahead and issue one run_plan per companion instead of many single tool calls: craft a batch, then insert it somewhere, then extract the product, then mine — all in one call. For PLACING multiple entities use build_plan (per-step placement validation); everything else chains here.",
+      z.object({
+        steps: z
+          .array(
+            z.discriminatedUnion("type", [
+              z.object({
+                type: z.literal("craft"),
+                recipe: z.string(),
+                count: z.number().int().min(1).max(100).optional(),
+              }),
+              z.object({
+                type: z.literal("insert"),
+                x: z.number(),
+                y: z.number(),
+                items: itemsField,
+              }),
+              z.object({
+                type: z.literal("extract"),
+                x: z.number(),
+                y: z.number(),
+                items: itemsField.optional(),
+                all: z.boolean().optional().describe("take everything instead of specific items"),
+              }),
+              z.object({
+                type: z.literal("mine"),
+                resource: z.string().optional().describe('resource name, "tree" or "rock"'),
+                count: z.number().int().min(1).max(200).optional(),
+                x: z.number().optional().describe("mine the entity at x,y instead of by resource name"),
+                y: z.number().optional(),
+              }),
+              z.object({
+                type: z.literal("place"),
+                item: z.string(),
+                x: z.number(),
+                y: z.number(),
+                direction: directionField,
+              }),
+              z.object({
+                type: z.literal("set_recipe"),
+                x: z.number(),
+                y: z.number(),
+                recipe: z.string(),
+              }),
+              z.object({
+                type: z.literal("rotate"),
+                x: z.number(),
+                y: z.number(),
+                direction: directionField,
+              }),
+              z.object({
+                type: z.literal("walk_to"),
+                x: z.number(),
+                y: z.number(),
+              }),
+              z.object({
+                type: z.literal("deliver"),
+                items: itemsField.optional().describe("what to hand to the player (default: reasonable extras)"),
+              }),
+            ]),
+          )
+          .min(1)
+          .max(25),
+      }),
+      async (bridge, { steps }) => {
+        const chain = crypto.randomUUID();
+        const queued: number[] = [];
+        for (let i = 0; i < steps.length; i++) {
+          const s = steps[i]!;
+          const { x, y, ...rest } = s as { x?: number; y?: number } & Record<string, unknown>;
+          const task =
+            typeof x === "number" && typeof y === "number" && s.type !== "place"
+              ? { ...rest, target: { x, y } }
+              : { ...rest, ...(s.type === "place" ? { position: { x, y } } : {}) };
+          try {
+            const res = await bridge.call<{ task_id: number }>("enqueue", {
+              task,
+              background: true,
+              quiet: i < steps.length - 1, // one completion event for the whole plan
+              chain,
+            });
+            queued.push(res.task_id);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            return (
+              (queued.length > 0
+                ? `Queued steps 1–${queued.length} (tasks #${queued[0]}–#${queued[queued.length - 1]}); they will still run. `
+                : "") + `Step ${i + 1} (${s.type}) was rejected: ${msg}`
+            );
+          }
+        }
+        return `Plan queued: ${steps.length} steps as tasks #${queued[0]}–#${queued[queued.length - 1]}. One [event] reports completion; a failed step reports immediately and cancels the rest.`;
+      },
+    ),
+
+    spec(
       "deconstruct",
       "Demolish OUR OWN buildings, recovering them (and their contents) into your inventory. CONSENT RULE: only set confirm=true when the player explicitly asked for demolition in their recent messages — never demolish on your own initiative; if in doubt, ask via say first. Give x+y for the single nearest building, or area_radius to clear everything around that point (max 50 buildings). Trees/rocks/ore are mined with the mine tool instead.",
       z.object({
