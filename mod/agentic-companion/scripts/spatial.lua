@@ -228,23 +228,20 @@ local function footprint_touches_water(surface, area)
   return false
 end
 
-function M.can_place(params)
-  local c = companion.require_companion()
-  local surface = c.surface
-
-  if type(params.item) ~= "string" then
+local function can_place_one(c, surface, item, position, direction)
+  if type(item) ~= "string" then
     error("can_place requires item = <item name>")
   end
-  local pos = require_position(params.position, "can_place requires position = {x, y}")
-  local direction = math.floor(tonumber(params.direction) or 0) % 16
+  local pos = require_position(position, "can_place requires position = {x, y}")
+  direction = math.floor(tonumber(direction) or 0) % 16
 
-  local item_proto = prototypes.item[params.item]
+  local item_proto = prototypes.item[item]
   if not item_proto then
-    error("no item called '" .. params.item .. "' — check the spelling with describe_prototype")
+    error("no item called '" .. item .. "' — check the spelling with describe_prototype")
   end
   local entity_proto = item_proto.place_result
   if not entity_proto then
-    error(params.item .. " is not a placeable item — it doesn't turn into a building")
+    error(item .. " is not a placeable item — it doesn't turn into a building")
   end
 
   local ok = surface.can_place_entity({
@@ -289,6 +286,42 @@ function M.can_place(params)
     reason = "blocked (terrain or overlap)"
   end
   return { can_place = false, reason = reason }
+end
+
+local MAX_PLACEMENTS = 24
+
+-- Single check ({item, position, direction}) or batched: placements =
+-- [{item?, position = {x,y}, direction?}, ...] checks up to MAX_PLACEMENTS
+-- spots in ONE call (item falls back to the top-level one). Spot-checking a
+-- build one tile at a time costs the brain a full think per tile.
+function M.can_place(params)
+  local c = companion.require_companion()
+  local surface = c.surface
+
+  if type(params.placements) == "table" then
+    if #params.placements == 0 then
+      error("placements must be a non-empty array")
+    end
+    if #params.placements > MAX_PLACEMENTS then
+      error("can_place takes at most " .. MAX_PLACEMENTS .. " placements per call — split the list")
+    end
+    local out = {}
+    for i, p in ipairs(params.placements) do
+      local ok, res = pcall(can_place_one, c, surface,
+        p.item or params.item, p.position, p.direction)
+      if not ok then
+        res = { can_place = false, reason = tostring(res):gsub("^.-:%d+:%s*", "") }
+      end
+      res.position = {
+        x = tonumber(type(p.position) == "table" and p.position.x or nil),
+        y = tonumber(type(p.position) == "table" and p.position.y or nil),
+      }
+      out[i] = res
+    end
+    return { results = out }
+  end
+
+  return can_place_one(c, surface, params.item, params.position, params.direction)
 end
 
 -- ------------------------------------------------------- find_buildable_area

@@ -183,7 +183,7 @@ local function locate(params)
   return entity
 end
 
-function M.inspect(params)
+local function inspect_one(params)
   local e = locate(params)
 
   local out = {
@@ -231,6 +231,36 @@ function M.inspect(params)
   collect_fluids(e, out)
 
   return out
+end
+
+local MAX_TARGETS = 16
+
+-- Single entity ({position}/{unit_number}) or batched: targets = [{x,y},...]
+-- inspects up to MAX_TARGETS entities in ONE call — reading machines one at
+-- a time costs the brain a full round of thinking per machine.
+function M.inspect(params)
+  if type(params.targets) == "table" then
+    if #params.targets == 0 then
+      error("targets must be a non-empty array of {x, y}")
+    end
+    if #params.targets > MAX_TARGETS then
+      error("inspect takes at most " .. MAX_TARGETS .. " targets per call — split the list")
+    end
+    local out = {}
+    for i, t in ipairs(params.targets) do
+      local ok, res = pcall(inspect_one, { position = t })
+      if ok then
+        out[i] = res
+      else
+        out[i] = {
+          error = tostring(res):gsub("^.-:%d+:%s*", ""),
+          position = { x = tonumber(t.x), y = tonumber(t.y) },
+        }
+      end
+    end
+    return { entities = out }
+  end
+  return inspect_one(params)
 end
 
 return M

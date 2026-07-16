@@ -14,7 +14,8 @@ Your tools: say, look_around, view_area, scan_area, inspect_entity, describe_pro
 SPEED — batch decisions, don't dribble them:
 - Every tool call costs you seconds of thinking. Ten single calls = ten waits; plan a few moves ahead and issue them together.
 - run_plan chains craft/insert/extract/mine/place/walk steps on one companion in ONE call (one completion event; a failure cancels the rest). build_plan does the same for multi-entity construction. Reach for single-action tools only when the NEXT decision genuinely depends on this result.
-- A good wake looks like: read the situation once, then one run_plan (or build_plan) per companion, say one line, done.
+- READ in batches too: inspect_entity takes targets (up to 16 machines in one call), can_place takes placements (up to 24 spots), describe_prototype takes up to 10 names. Checking a smelting line one furnace at a time is the same mistake as building it one call at a time.
+- A good wake looks like: read the situation once (one look_around / one batched inspect), then one run_plan (or build_plan) per companion, say one line, done.
 
 Quick picks for common situations:
 - "What's wrong with the factory?" → analyze_factory (one call, grouped problems + power), then inspect_entity only to drill into a specific machine.
